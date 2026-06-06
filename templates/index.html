@@ -100,10 +100,11 @@ a{color:inherit;text-decoration:none}
 </div>
 
 {% if history %}
-<div class="chart-section"><h3>近30天流量趋势</h3><div id="chart" style="width:100%;height:280px;"></div></div>
+<div class="chart-section"><h3>近30天流量趋势</h3><div id="chart" style="width:100%;height:280px;"><div id="chartLoading" style="text-align:center;padding:100px 0;color:#8899bb">加载中...</div></div></div>
 <script>
 !function(){var h={{history|tojson}};if(!h||!h.length)return;
 function i(){if(typeof echarts==='undefined'){setTimeout(i,500);return;}
+var l=document.getElementById('chartLoading');if(l)l.style.display='none';
 var c=echarts.init(document.getElementById('chart'));
 c.setOption({tooltip:{trigger:'axis',axisPointer:{type:'shadow'},
 formatter:function(p){var r=h[p[0].dataIndex];return r.date+'<br/>▼入站: '+r.total_in_display+'<br/>▲出站: '+r.total_out_display+'<br/><b>合计: '+r.total_display+'</b>';},
