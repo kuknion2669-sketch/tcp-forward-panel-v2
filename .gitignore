@@ -1,15 +1,17 @@
-# Python
+
+build/
+dist/
+.DS_Store
+*.egg-info/
+fix_*.py
+.gitignore
+*.log
+# Logs
+*.pyc
 __pycache__/
 *.py[cod]
 *.pyo
-*.pyc
-*.egg-info/
-dist/
-build/
-
-# Logs
-*.log
-
+# Python
+*.sh
 # System
-.DS_Store
 Thumbs.db
