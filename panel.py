@@ -381,14 +381,14 @@ def settings():
     cfg_data = db.get_config()
     msg = ''
     if request.method == 'POST':
-        np = request.form.get('panel_port', '').strip()
+        np = request.form.get('panel_port_v2', '').strip()
         nu = request.form.get('username', '').strip()
         pw = request.form.get('password', '')
         pw2 = request.form.get('password2', '')
         msg = '已保存'
         restart = False
         if np and np.isdigit():
-            db.set_config('panel_port', np)
+            db.set_config('panel_port_v2', np)
             restart = True
         if nu:
             db.set_config('username', nu)
@@ -404,11 +404,11 @@ def settings():
             _sp.Popen("nohup python3 /root/tcp-panel-v2/panel.py >/dev/null 2>&1 &", shell=True)
             _sp.Popen(f"(sleep 1; kill -9 {os.getpid()}) 2>/dev/null &", shell=True)
             return redirect(f'http://{request.host.rsplit(":", 1)[0]}:{np}/login')
-    return render_template('settings.html', port=cfg_data.get('panel_port', '8081'),
+    return render_template('settings.html', port=cfg_data.get('panel_port_v2', '8081'),
                           username=cfg_data.get('username', 'admin'), msg=msg)
 
 if __name__ == '__main__':
-    port = int(db.get_config().get('panel_port', '8081'))
+    port = int(db.get_config().get('panel_port_v2', '8081'))
     log.info(f"Starting panel v14 on port {port}")
     print(f"Panel v14 starting on http://0.0.0.0:{port}")
     app.run(host="0.0.0.0", port=port, debug=False)
