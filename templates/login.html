@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html><head><meta charset=utf-8><title>登录</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+body{background:#0f172a;color:#f1f5f9;font-family:system-ui;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}
+.card{background:#1e293b;border-radius:16px;padding:32px;width:360px;border:1px solid rgba(255,255,255,.1)}
+h2{color:#d0daf0;font-weight:400;text-align:center;margin-bottom:24px}
+input{width:100%;padding:10px 14px;margin:8px 0;border-radius:8px;border:1px solid rgba(255,255,255,.1);background:rgba(0,0,0,.3);color:#f1f5f9;font-size:14px;box-sizing:border-box;outline:none}
+input:focus{border-color:#667eea}
+button{width:100%;padding:10px;border-radius:8px;border:none;background:#667eea;color:white;font-size:14px;cursor:pointer;margin-top:12px}
+button:hover{filter:brightness(1.1)}
+.error{color:#f87171;font-size:13px;text-align:center;margin-top:8px}
+</style></head><body>
+<div class=card><h2>TCP 管理面板</h2>
+<form method=post>
+<input name=username placeholder="账号" required>
+<input name=password type=password placeholder="密码" required>
+<button type=submit>登录</button>
+<div style="margin-top:16px;padding-top:12px;border-top:1px solid rgba(255,255,255,0.08);font-size:12px;color:#64748b;text-align:center">v14 测试版</div>
+</form>
+{% if error %}<div class=error>{{ error }}</div>{% endif %}
+</div></body></html>
