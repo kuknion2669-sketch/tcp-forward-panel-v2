@@ -10,7 +10,9 @@ td{padding:6px 10px;border-bottom:1px solid rgba(255,255,255,0.04)}
 td[data-port]{cursor:pointer;text-decoration:underline}
 td[data-port]:hover{opacity:.8}
 a{color:var(--cyan)}
-</style></head><body><h2>连接状态</h2>
+</style><script defer src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/vanta@latest/dist/vanta.waves.min.js"></script>
+</head><body><h2>连接状态</h2>
 <a href="/" style="display:inline-block;margin-bottom:16px;font-size:13px">&larr; 返回面板</a>
 <table><tr><th>Status</th><th>节点</th><th>目标IP</th><th>连接数</th><th>入站</th><th>出站</th></tr>
 {% for s in stats %}
