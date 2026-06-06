@@ -134,7 +134,32 @@ if(typeof echarts!=='undefined')i();else setTimeout(i,200);}();
   </div>
   <div class="nl">
   {% for item in filtered %}
-    {% include 'node_item.html' %}
+    <div class="nd">
+      <div class="nd-info">
+        <div class="nd-name">
+          <span class="bdg{% if item.expired %}bdg-exp{% elif item.quota>0 and item.used>=item.quota*1024 %}bdg-quota{% elif item.online %}bdg-on{% else %}bdg-off{% endif %}">
+            {% if item.expired %}已过期{% elif item.quota>0 and item.used>=item.quota*1024 %}耗尽{% elif item.online %}在线{% else %}离线{% endif %}
+          </span>
+          {{ item.name }}<span class="cr" data-idx="{{ item._idx }}"></span>
+        </div>
+        <div class="nd-route">{{ item.local }} &#8594; {{ item.ip }}:{{ item.port }}</div>
+        <div class="nd-meta">
+          {% if item.expire_time_display %}<span>{{ item.expire_time_display }}</span>{% endif %}
+          <span style="color:var(--cyan)">&#9660;入 {{ item.used_in_display }}</span>
+          <span style="color:var(--gold)">&#9650;出 {{ item.used_out_display }}</span>
+          <span>{% if item.quota > 0 %}<span class="pb"><span class="pf" style="width:{{ (item.used/(item.quota*1024)*100)|int }}%"></span></span> {{"%.1f"|format(item.used)}} MB / {{ item.quota }} GB{% else %}不限量{% endif %}</span>
+        </div>
+      </div>
+      <div class="nd-acts" style="display:flex;gap:4px;flex-wrap:wrap;align-items:center">
+        <div style="display:flex;gap:4px">
+          <button class="btn btn-gho btn-sm" data-idx="{{ item._idx }}" onclick="checkOne(this)">检测</button>
+          <a href="/edit/{{ item._idx }}" class="btn btn-gho btn-sm">编辑</a>
+          <a href="/reset_quota/{{ item._idx }}" class="btn btn-gho btn-sm" onclick="return confirm('确定重置？')">重置</a>
+          <a href="/restart/{{ item.local }}" class="btn btn-gho btn-sm">重启</a>
+        </div>
+        <a href="javascript:void(0)" class="btn btn-dgr btn-sm" onclick="deleteNode({{ item._idx }}, this)">删除</a>
+      </div>
+    </div>
   {% endfor %}
   {% if not filtered %}<div style="text-align:center;padding:30px;color:var(--text2)">暂无规则</div>{% endif %}
   </div>
@@ -232,6 +257,16 @@ if(typeof echarts!=='undefined')i();else setTimeout(i,200);}();
         <a href="#" class="btn btn-gho" style="flex:1;text-align:center">取消</a>
       </div>
     </form>
+    <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
+      <span onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display=='none'?'':'none'" class="btn btn-gho btn-sm" style="cursor:pointer;width:100%;text-align:center;display:block">批量导入</span>
+      <div style="display:none;margin-top:8px">
+        <form method="post" action="/batch_add">
+        <div style="font-size:.7rem;color:var(--text2);margin-bottom:4px">每行一条，格式: 名称:本地端口:目标IP:目标端口</div>
+        <textarea name="batch_data" rows="3" style="width:100%;padding:8px;border-radius:6px;border:1px solid var(--border);background:rgba(0,0,0,0.4);color:var(--text);font-size:.75rem;font-family:monospace;outline:none;resize:vertical" placeholder="香港1:35957:1.2.3.4:443"></textarea>
+        <button class="btn btn-pri btn-sm" type="submit" style="margin-top:6px">导入</button>
+        </form>
+      </div>
+    </div>
   </div>
 </div>
 </div>

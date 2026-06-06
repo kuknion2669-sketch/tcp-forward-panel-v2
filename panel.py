@@ -198,6 +198,34 @@ def add():
     log.info(f"Added rule: {name} ({local} -> {ip}:{port})")
     return redirect(request.referrer or '/')
 
+@app.route('/batch_add', methods=['POST'])
+@login_required
+def batch_add():
+    text = request.form.get('batch_data', '')
+    rules = []
+    for line in text.strip().split('\n'):
+        if not line or line.startswith('#'): continue
+        parts = line.strip().split(':')
+        if len(parts) < 4: continue
+        name, local, ip, rport = parts[0], parts[1].strip(), parts[2], parts[3]
+        ep = parts[4].strip() if len(parts) > 4 else ""
+        qp = parts[5].strip() if len(parts) > 5 else ""
+        if not name or not ip or not rport or not rport.isdigit(): continue
+        if local and not local.isdigit(): continue
+        if not local: local = haproxy.free_port()
+        quota = 10.0 if qp in ('', '0') else float(qp) if qp else 10.0
+        expire = haproxy.parse_expire(ep)
+        rules.append({'name': name, 'local': local, 'ip': ip, 'port': rport,
+                      'expire': expire, 'quota': quota, 'used': 0, 'enable': True})
+    data = db.load()
+    for r in rules:
+        if any(i['local'] == r['local'] for i in data): continue
+        data.append(r)
+    db.save(data)
+    haproxy.reload(data)
+    log.info(f"Batch added {len(rules)} rules")
+    return redirect(request.referrer or '/')
+
 @app.route('/del/<int:idx>')
 @login_required
 def delete(idx):
@@ -380,8 +408,7 @@ def settings():
                           username=cfg_data.get('username', 'admin'), msg=msg)
 
 if __name__ == '__main__':
-    # Force port 8081 for v14 test (separate from v13 on 8080)
-    port = 8081
+    port = int(db.get_config().get('panel_port', '8081'))
     log.info(f"Starting panel v14 on port {port}")
     print(f"Panel v14 starting on http://0.0.0.0:{port}")
     app.run(host="0.0.0.0", port=port, debug=False)

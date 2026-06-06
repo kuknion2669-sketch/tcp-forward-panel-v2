@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyc
+*.egg-info/
+dist/
+build/
+
+# Logs
+*.log
+
+# System
+.DS_Store
+Thumbs.db

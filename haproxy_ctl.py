@@ -75,8 +75,8 @@ class HAProxyCtl:
                         'bin': int(parts[8] or 0),
                         'bout': int(parts[9] or 0)
                     }
-                except:
-                    pass
+                except Exception:
+                    pass  # int() conversion failure, skip
             return stats
         except Exception as e:
             log.warning(f"get_backend_stats failed: {e}")
@@ -164,9 +164,9 @@ class HAProxyCtl:
             for fmt in ('%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M', '%Y-%m-%d'):
                 try:
                     return str(datetime.strptime(t, fmt).timestamp())
-                except:
-                    pass
-        except:
+                except Exception:
+                    pass  # int() conversion failure, skip
+        except Exception:
             pass
         from datetime import datetime, timedelta
         return str((datetime.now() + timedelta(days=30)).timestamp())
@@ -243,7 +243,7 @@ class HAProxyCtl:
                    (it.get('quota', 0) > 0 and it.get('used', 0) >= it.get('quota', 0) * 1024):
                     s.sendall(f"shutdown sessions server be_{lo}/s{lo}\n".encode())
             s.close()
-        except:
+        except Exception:
             pass
 
         log.info(f"HAProxy reloaded: {len([d for d in data if d.get('enable', True)])} active rules")

@@ -72,8 +72,8 @@ class StatsCollector:
                         _sq_s.sendall(f"disable server be_{lo}/s{lo}\n".encode())
                         _sq_s.sendall(f"shutdown sessions server be_{lo}/s{lo}\n".encode())
             _sq_s.close()
-        except:
-            pass
+        except Exception as _e:
+            log.warning(f"Auto-disable failed: {_e}")
 
     def record(self):
         """Save current traffic snapshot to daily table"""
@@ -89,8 +89,8 @@ class StatsCollector:
                 total += float(item.get('used', 0))
                 total_in += float(item.get('used_in', 0))
                 total_out += float(item.get('used_out', 0))
-            except:
-                pass
+            except Exception:
+                pass  # non-critical, skip
             if self.haproxy.is_listening(p):
                 online += 1
 
