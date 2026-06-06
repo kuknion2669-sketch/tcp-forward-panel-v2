@@ -235,7 +235,7 @@ a{color:inherit;text-decoration:none}
           <span class="bdg{% if item.expired %}bdg-exp{% elif item.quota>0 and item.used>=item.quota*1024 %}bdg-quota{% elif item.online %}bdg-on{% else %}bdg-off{% endif %}">
             {% if item.expired %}已过期{% elif item.quota>0 and item.used>=item.quota*1024 %}耗尽{% elif item.online %}在线{% else %}离线{% endif %}
           </span>
-          {{ item.name }}<span class="cr" data-idx="{{ item._idx }}"></span>
+          {{ item.name }}<span class="grp-tag">{{ item.group }}</span><span class="cr" data-idx="{{ item._idx }}"></span>
         </div>
         <div class="nd-route">{{ item.local }} &#8594; {{ item.ip }}:{{ item.port }}</div>
         <div class="nd-meta">
@@ -286,7 +286,7 @@ a{color:inherit;text-decoration:none}
           <span class="bdg{% if item.expired %}bdg-exp{% elif item.quota>0 and item.used>=item.quota*1024 %}bdg-quota{% elif item.online %}bdg-on{% else %}bdg-off{% endif %}">
             {% if item.expired %}已过期{% elif item.quota>0 and item.used>=item.quota*1024 %}耗尽{% elif item.online %}在线{% else %}离线{% endif %}
           </span>
-          {{ item.name }}<span class="cr" data-idx="{{ item._idx }}"></span>
+          {{ item.name }}<span class="grp-tag">{{ item.group }}</span><span class="cr" data-idx="{{ item._idx }}"></span>
         </div>
         <div class="nd-route">{{ item.local }} → {{ item.ip }}:{{ item.port }}</div>
         <div class="nd-meta">
