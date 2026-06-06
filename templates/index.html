@@ -76,7 +76,7 @@ a{color:inherit;text-decoration:none}
 </style>
 <script defer src="/static/three.min.js"></script>
 <script defer src="/static/vanta.waves.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+<script src="/static/echarts.min.js"></script>
 </head>
 <body><div class="container"><div class="content-box">
 
@@ -281,6 +281,11 @@ if(typeof echarts!=='undefined')i();else setTimeout(i,200);}();
   </div>
 </div>
 </div>
+<div class="vanta-bg" id="vantaBg"></div>
+<style>
+.vanta-bg{position:fixed;top:0;left:0;width:100%;height:100%;z-index:0;pointer-events:none}
+</style>
+
 
 <script>
 function checkOne(btn){
