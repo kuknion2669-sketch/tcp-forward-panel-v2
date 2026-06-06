@@ -23,6 +23,8 @@ input:focus{outline:none;border-color:#667eea}
 <label>目标端口</label><input name="port" value="{{ item.port }}" required>
 <label>过期时间</label><input type="datetime-local" name="expire" value="{{ expire }}" style="color-scheme:dark">
 <label>流量配额(GB)</label><input name="quota" value="{{ item.quota }}" step="0.5" min="0" placeholder="0=不限量">
+<label>自定义分组</label><input name="group_name" value="{{ item.group_name }}" placeholder="留空自动识别">
+<label>备注</label><input name="note" value="{{ item.note }}" placeholder="备注信息">
 <div class="actions">
 <button class="btn" type="submit">保存修改</button>
 <a class="btn2" href="/">取消</a>

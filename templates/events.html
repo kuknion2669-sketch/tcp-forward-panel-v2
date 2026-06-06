@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head><meta charset="UTF-8"><title>操作日志</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+body{background:#0a0e1a;color:#d0daf0;font:15px/1.5 system-ui,sans-serif;padding:20px;min-height:100vh}
+body::before{content:'';position:fixed;top:0;left:0;right:0;bottom:0;
+  background-image:linear-gradient(rgba(0,229,255,.04) 1px,transparent 1px),
+                   linear-gradient(90deg,rgba(0,229,255,.04) 1px,transparent 1px);
+  background-size:40px 40px;pointer-events:none;z-index:0}
+.container{max-width:1000px;margin:0 auto;position:relative;z-index:1}
+.content-box{background:rgba(10,14,26,.85);backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,.05);border-radius:16px;padding:20px}
+.hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px}
+.hdr h1{font-size:1.3rem;font-weight:800}.hdr h1 span{color:var(--cyan)}
+a{color:#00e5ff;text-decoration:none;font-size:.85rem}
+table{width:100%;border-collapse:collapse;font-size:.82rem}
+th{background:rgba(255,255,255,.05);color:#8899bb;padding:10px;text-align:left;font-weight:600;border-bottom:1px solid rgba(255,255,255,.08)}
+td{padding:8px 10px;border-bottom:1px solid rgba(255,255,255,.04)}
+tr:hover{background:rgba(0,229,255,.03)}
+.tag{display:inline-block;padding:2px 6px;border-radius:3px;font-size:.7rem;border:1px solid}
+.tag-add{border-color:rgba(0,255,136,.3);color:#0f8}
+.tag-del{border-color:rgba(255,34,85,.3);color:#f25}
+.tag-edit{border-color:rgba(0,229,255,.3);color:#0ef}
+.tag-reset{border-color:rgba(255,187,0,.3);color:#fb0}
+.ft{text-align:center;font-size:.72rem;color:#8899bb;margin-top:20px;opacity:.4}
+</style></head><body><div class="container"><div class="content-box">
+<div class="hdr">
+  <h1>操作日志</h1>
+  <a href="/">返回面板</a>
+</div>
+<table>
+<tr><th>时间</th><th>类型</th><th>节点</th><th>内容</th></tr>
+{% for e in events %}
+<tr>
+  <td style="color:#8899bb;white-space:nowrap">{{ e.time }}</td>
+  <td><span class="tag tag-{{ e.event_type }}">{{ e.event_type }}</span></td>
+  <td>{{ e.name }}</td>
+  <td style="color:#8899bb">{{ e.message }}</td>
+</tr>
+{% else %}
+<tr><td colspan="4" style="text-align:center;padding:30px;color:#8899bb">暂无操作记录</td></tr>
+{% endfor %}
+</table>
+{% if page > 1 %}
+<div style="margin-top:16px;text-align:center">
+  <a href="/events?page={{ page-1 }}">上一页</a>
+  <span style="margin:0 12px;color:#8899bb">第 {{ page }} 页</span>
+  {% if events|length == limit %}<a href="/events?page={{ page+1 }}">下一页</a>{% endif %}
+</div>
+{% else %}
+<div style="margin-top:16px;text-align:center;color:#8899bb">
+  第 {{ page }} 页
+  {% if events|length == limit %}<a href="/events?page={{ page+1 }}" style="margin-left:12px">下一页</a>{% endif %}
+</div>
+{% endif %}
+<div class="ft">v14 测试版</div>
+</div></div></body></html>

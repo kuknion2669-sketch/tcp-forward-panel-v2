@@ -50,17 +50,20 @@ def login_required(f):
         return f(*args, **kwargs)
     return decorated
 
-def detect_group(name):
+def detect_group(item):
+    gn = item.get('group_name', '').strip()
+    if gn:
+        return gn
+    name = item.get('name', '')
     for k in GROUP_LABELS:
         if name.startswith(k):
             return GROUP_LABELS[k]
     import re
-    m = re.match(r'^([\u4e00-\u9fff]{2})', name)
+    m = re.match(r'^([一-鿿]{2})', name)
     if m: return m.group(1)
     m = re.match(r'^([A-Za-z]+)', name)
     if m: return GROUP_LABELS.get(m.group(1).upper(), m.group(1).upper())
     return "📦 其他"
-
 def enrich_item(item, idx):
     i = dict(item)
     i['_idx'] = idx
@@ -77,7 +80,7 @@ def enrich_item(item, idx):
     uo = i.get('used_out', 0)
     i['used_in_display'] = f"{round(ui/1024,1)}GB" if ui >= 1024 else f"{round(ui,1)}MB"
     i['used_out_display'] = f"{round(uo/1024,1)}GB" if uo >= 1024 else f"{round(uo,1)}MB"
-    i['group'] = detect_group(i['name'])
+    i['group'] = detect_group(i)
     return i
 
 # ─── Routes ───
@@ -191,8 +194,11 @@ def add():
     quota = 1.0 if quota_raw in ('', '0') else float(quota_raw) if quota_raw else 1.0
     
     data = db.load()
+    note = request.form.get('note', '').strip()
+    group = request.form.get('group_name', '').strip()
     data.append({'name': name, 'local': local, 'ip': ip, 'port': port,
-                 'expire': expire, 'quota': quota, 'used': 0, 'enable': True})
+                 'expire': expire, 'quota': quota, 'used': 0, 'enable': True,
+                 'note': note, 'group_name': group})
     db.save(data)
     haproxy.reload(data)
     log.info(f"Added rule: {name} ({local} -> {ip}:{port})")
@@ -216,7 +222,8 @@ def batch_add():
         quota = 10.0 if qp in ('', '0') else float(qp) if qp else 10.0
         expire = haproxy.parse_expire(ep)
         rules.append({'name': name, 'local': local, 'ip': ip, 'port': rport,
-                      'expire': expire, 'quota': quota, 'used': 0, 'enable': True})
+                      'expire': expire, 'quota': quota, 'used': 0, 'enable': True,
+                      'group_name': '', 'note': ''})
     data = db.load()
     for r in rules:
         if any(i['local'] == r['local'] for i in data): continue
@@ -406,6 +413,15 @@ def settings():
             return redirect(f'http://{request.host.rsplit(":", 1)[0]}:{np}/login')
     return render_template('settings.html', port=cfg_data.get('panel_port_v2', '8081'),
                           username=cfg_data.get('username', 'admin'), msg=msg)
+
+
+@app.route('/events')
+def events_page():
+    page = request.args.get('page', 1, type=int)
+    limit = 50
+    offset = (page - 1) * limit
+    events_list = db.get_events(limit=limit, offset=offset)
+    return render_template('events.html', events=events_list, page=page, limit=limit)
 
 if __name__ == '__main__':
     port = int(db.get_config().get('panel_port_v2', '8081'))

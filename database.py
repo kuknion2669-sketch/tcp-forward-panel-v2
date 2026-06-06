@@ -61,12 +61,12 @@ class Database:
             c = conn.cursor()
             c.execute("DELETE FROM rules")
             for item in data:
-                c.execute('''INSERT INTO rules (name, local, ip, port, expire, quota, used, used_in, used_out, enable, note)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?)''',
+                c.execute('''INSERT INTO rules (name, local, ip, port, expire, quota, used, used_in, used_out, enable, note, group_name)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)''',
                     (item.get('name', ''), item.get('local', ''), item.get('ip', ''),
                      item.get('port', ''), item.get('expire', ''), item.get('quota', 0),
                      item.get('used', 0), item.get('used_in', 0), item.get('used_out', 0),
-                     1 if item.get('enable', True) else 0, item.get('note', '')))
+                     1 if item.get('enable', True) else 0, item.get('note', ''), item.get('group_name', '')))
             conn.commit()
             conn.close()
             return True
@@ -120,7 +120,21 @@ class Database:
             log.error(f"Get daily failed: {e}")
             return []
 
+    
+    def get_events(self, limit=100, offset=0):
+        try:
+            conn = sqlite3.connect(self.db_file)
+            cur = conn.cursor()
+            cur.execute('SELECT * FROM events ORDER BY id DESC LIMIT ? OFFSET ?', (limit, offset))
+            rows = [dict(r) for r in cur.fetchall()]
+            conn.close()
+            return rows
+        except Exception as e:
+            log.error(f"Get events failed: {e}")
+            return []
+
     def save_daily(self, date, total, total_in, total_out, online, total_nodes):
+
         try:
             conn = sqlite3.connect(self.db_file)
             cur = conn.cursor()
