@@ -201,7 +201,10 @@ a{color:inherit;text-decoration:none}
   else setTimeout(initChart, 200);
 })();
 </script>
-{% endif %}">分组视图</a>
+{% endif %}
+
+<div class="tabs">
+  <a href="/" class="tab{% if view == 'groups' or not view %} act{% endif %}">分组视图</a>
   <a href="/?view=all" class="tab{% if view == 'all' %} act{% endif %}">全部节点</a>
 </div>
 
