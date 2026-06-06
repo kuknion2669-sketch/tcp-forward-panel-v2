@@ -12,9 +12,11 @@
 *{margin:0;padding:0;box-sizing:border-box}
 body{background:var(--bg);color:var(--text);font:15px/1.5 system-ui,sans-serif;padding:20px;min-height:100vh}
 body::before{content:'';position:fixed;top:0;left:0;right:0;bottom:0;
-  background-image:linear-gradient(rgba(0,229,255,.04) 1px,transparent 1px),
-                   linear-gradient(90deg,rgba(0,229,255,.04) 1px,transparent 1px);
-  background-size:40px 40px;pointer-events:none;z-index:0}
+  background:radial-gradient(ellipse at 50% 0%,rgba(0,229,255,.08) 0%,transparent 50%),
+             radial-gradient(ellipse at 80% 50%,rgba(124,58,237,.05) 0%,transparent 50%),
+             radial-gradient(ellipse at 20% 50%,rgba(0,229,255,.05) 0%,transparent 50%);
+  background-size:200% 200%;animation:waveMove 12s ease-in-out infinite;pointer-events:none;z-index:0}
+@keyframes waveMove{0%,100%{background-position:0% 50%}25%{background-position:100% 30%}50%{background-position:200% 50%}75%{background-position:100% 70%}}
 .container{max-width:1200px;margin:0 auto;position:relative;z-index:1}
 .content-box{background:rgba(10,14,26,.85);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
   border:1px solid rgba(255,255,255,.05);border-radius:16px;padding:20px;min-height:calc(100vh - 40px);position:relative;z-index:1}
