@@ -122,6 +122,17 @@ body{background:var(--bg);color:var(--text);font:14px/1.6 -apple-system,BlinkMac
 .btn-danger{background:rgba(239,68,68,.1);color:var(--danger);border-color:rgba(239,68,68,.2)}.btn-danger:hover{background:var(--danger);color:#fff;border-color:var(--danger)}
 .btn-sm{padding:4px 10px;font-size:12px}
 .btn-xs{padding:3px 8px;font-size:11px;border-radius:4px}
+/* Toggle switch */
+.toggle-sw{display:inline-flex;align-items:center;gap:6px;cursor:pointer;user-select:none}
+.toggle-sw input{display:none}
+.toggle-track{width:36px;height:20px;border-radius:10px;background:#1e293b;border:1px solid #334155;position:relative;transition:all .2s;flex-shrink:0}
+.toggle-track:after{content:'';position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:#64748b;transition:all .2s}
+.toggle-sw input:checked+.toggle-track{background:rgba(59,130,246,.2);border-color:rgba(59,130,246,.4)}
+.toggle-sw input:checked+.toggle-track:after{left:18px;background:#3b82f6}
+.toggle-sw:hover .toggle-track{border-color:#475569}
+.toggle-lbl{font-size:11px;color:#64748b;min-width:2em}
+.toggle-sw input:checked~.toggle-lbl{color:#3b82f6}
+
 .btn-icon{width:28px;height:28px;padding:0;display:inline-flex;align-items:center;justify-content:center;font-size:14px}
 
 /* Progress bar */
@@ -338,9 +349,11 @@ body{background:var(--bg);color:var(--text);font:14px/1.6 -apple-system,BlinkMac
         {% endif %}
         <button class="btn btn-ghost btn-xs" onclick="checkOne(this)" data-idx="{{ item._idx }}">检测</button>
         <button class="btn btn-ghost btn-xs" onclick="editNode({{ item._idx }})">编辑</button>
-        <button class="btn btn-ghost btn-xs" onclick="toggleNode('{{ item.local }}', this)" title="点击停用/启用此节点转发">
-          {% if item.enable %}停用{% else %}启用{% endif %}
-        </button>
+        <label class="toggle-sw" title="点击切换启用/停用">
+          <input type="checkbox" {% if item.enable %}checked{% endif %} onchange="toggleSwitch('{{ item.local }}', this)">
+          <span class="toggle-track"></span>
+          <span class="toggle-lbl">{% if item.enable %}启用{% else %}停用{% endif %}</span>
+        </label>
         <button class="btn btn-danger btn-xs" onclick="deleteNode({{ item._idx }}, this)" style="margin-left:12px">删除</button>
       </div>
     </div>
@@ -491,8 +504,14 @@ function deleteNode(idx,el){
   }).catch(function(){})
 }
 
-function toggleNode(local,btn){
+function toggleSwitch(local,cb){
+  var lbl=cb.parentNode.querySelector('.toggle-lbl')
   fetch('/api/toggle/'+local,{method:'POST'}).then(function(r){return r.json()}).then(function(d){
+    if(!d.ok){cb.checked=!cb.checked;return}
+    cb.checked=d.enable
+    lbl.textContent=d.enable?'启用':'停用'
+  }).catch(function(){cb.checked=!cb.checked})
+}).then(function(r){return r.json()}).then(function(d){
     if(d.ok)btn.textContent=d.enable?'\u23F9':'\u25B6'
   }).catch(function(){})
 }
