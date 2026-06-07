@@ -35,6 +35,7 @@ db = Database(cfg.db_file)
 haproxy = HAProxyCtl(cfg)
 checker = CheckManager(db)
 stats = StatsCollector(db, haproxy)
+stats.load_last_state()
 
 GROUP_LABELS = {
     "美区": "🇺🇸 美区", "香港": "🇭🇰 香港", "泰国": "🇹🇭 泰国",

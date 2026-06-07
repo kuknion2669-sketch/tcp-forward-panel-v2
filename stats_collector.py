@@ -1,6 +1,7 @@
 """Traffic statistics - HAProxy stats polling, daily aggregation"""
 import time
 import logging
+import json
 from datetime import datetime
 
 log = logging.getLogger('stats')
@@ -11,6 +12,23 @@ class StatsCollector:
         self.haproxy = haproxy_ctl
         self.last_update = [0.0]
         self.last_traffic = {}
+
+    def load_last_state(self):
+        try:
+            cfg = self.db.get_config()
+            if 'stats_last_traffic' in cfg:
+                loaded = json.loads(cfg['stats_last_traffic'])
+                self.last_traffic.update(loaded)
+                log.info(f"Loaded last_traffic with {len(loaded)} entries from DB")
+        except Exception as e:
+            log.warning(f"load_last_state: {e}")
+
+    def save_last_state(self):
+        try:
+            encoded = json.dumps(self.last_traffic)
+            self.db.set_config('stats_last_traffic', encoded)
+        except Exception as e:
+            log.warning(f"save_last_state: {e}")
 
     def clear_last(self, port):
         """Clear tracking for a single port (used after quota reset)"""
@@ -56,6 +74,7 @@ class StatsCollector:
         if changed:
             self.db.save(data)
 
+        self.save_last_state()
         self.record()
 
         # Auto-disable quota-exhausted nodes

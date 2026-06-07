@@ -216,15 +216,9 @@ class HAProxyCtl:
         with open(self.config_file, 'w') as f:
             f.write(cfg)
 
-        # Hot reload
+        # Hot reload via systemctl
         try:
-            if os.path.exists(self.pid_file):
-                pid = open(self.pid_file).read().strip()
-                subprocess.run(f"haproxy -f {self.config_file} -p {self.pid_file} -sf {pid}",
-                             shell=True, capture_output=True)
-            else:
-                subprocess.run(f"haproxy -f {self.config_file} -p {self.pid_file} -D",
-                             shell=True, capture_output=True)
+            subprocess.run('systemctl restart haproxy', shell=True, capture_output=True, timeout=10)
         except Exception as e:
             log.error(f"Reload failed: {e}")
 
