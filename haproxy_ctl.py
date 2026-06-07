@@ -43,7 +43,7 @@ class HAProxyCtl:
         lines = raw.strip().split('\n')
         if len(lines) < 2:
             return []
-        hdrs = lines[0].split(',')
+        hdrs = [h.strip().lstrip('#').strip() for h in lines[0].split(',')]
         result = []
         for line in lines[1:]:
             vals = line.split(',')
