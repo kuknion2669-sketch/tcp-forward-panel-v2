@@ -342,6 +342,8 @@ body{background:var(--bg);color:var(--text);font:14px/1.6 -apple-system,BlinkMac
           <span class="bdg bdg-exp">已过期</span>
         {% elif item.quota > 0 and item.used >= item.quota * 1024 %}
           <span class="bdg bdg-quota">已达配额</span>
+        {% elif not item.enable %}
+          <span class="bdg bdg-off" style="background:rgba(100,116,139,.1);color:#64748b;border-color:rgba(100,116,139,.2)">已停用</span>
         {% elif item.online %}
           <span class="bdg bdg-on"><span class="dot dot-on" style="width:5px;height:5px"></span> 在线</span>
         {% else %}
