@@ -89,14 +89,13 @@ def enrich_item(item, idx):
 @app.route('/')
 @login_required
 def index():
-    stats.record()
-    
     q = request.args.get('q', '')
     sf = request.args.get('status', 'all')
     group_filter = request.args.get('group', '')
     view = request.args.get('view', 'groups') if not group_filter else 'detail'
     
     stats.update()
+    stats.record()
     data = db.load()
     enriched = [enrich_item(it, i) for i, it in enumerate(data)]
     
@@ -417,6 +416,7 @@ def settings():
 
 
 @app.route('/events')
+@login_required
 def events_page():
     page = request.args.get('page', 1, type=int)
     limit = 50

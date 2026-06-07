@@ -144,7 +144,9 @@ class Database:
                 if total >= prev[0] and total_in >= prev[1] and total_out >= prev[2]:
                     new_total, new_in, new_out = total, total_in, total_out
                 else:
-                    new_total, new_in, new_out = total, total_in, total_out
+                    new_total = round(prev[0] + max(0, total), 1)
+                    new_in = round(prev[1] + max(0, total_in), 1)
+                    new_out = round(prev[2] + max(0, total_out), 1)
             else:
                 new_total, new_in, new_out = total, total_in, total_out
             cur.execute('INSERT OR REPLACE INTO daily (date, total_traffic, total_in, total_out, online_count, total_nodes) VALUES (?,?,?,?,?,?)',
