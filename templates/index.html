@@ -70,18 +70,23 @@ body{background:var(--bg);color:var(--text);font:14px/1.6 -apple-system,BlinkMac
 .toolbar input:focus,.toolbar select:focus{border-color:var(--primary)}
 
 /* Groups grid */
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;margin-bottom:24px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px;margin-bottom:24px}
 .grid-item{
-  background:var(--card);border:1px solid var(--border);border-radius:var(--radius);
-  padding:18px;cursor:pointer;transition:border-color .15s,transform .15s;display:block
+  background:linear-gradient(135deg,var(--card) 0%,var(--card2) 100%);
+  border:1px solid var(--border);border-radius:12px;
+  padding:0;cursor:pointer;transition:all .2s;display:block;overflow:hidden
 }
-.grid-item:hover{border-color:var(--primary);transform:translateY(-1px)}
-.grid-name{font-size:14px;font-weight:600;margin-bottom:4px;color:var(--text)}
-.grid-count{font-size:12px;color:var(--text2);margin-bottom:4px}
-.grid-bar{height:4px;border-radius:4px;background:var(--card2);overflow:hidden;margin:8px 0}
-.grid-fill{height:100%;border-radius:4px;background:linear-gradient(90deg,var(--primary),#6366f1)}
-.grid-traffic{font-size:12px;color:var(--text2);display:flex;gap:16px;flex-wrap:wrap}
-.grid-status{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;font-size:11px;color:var(--text2)}
+.grid-item:hover{border-color:var(--primary);transform:translateY(-2px);box-shadow:0 4px 20px rgba(59,130,246,.08)}
+.grid-head{background:rgba(59,130,246,.04);border-bottom:1px solid var(--border);padding:16px 20px;display:flex;justify-content:space-between;align-items:center}
+.grid-name{font-size:15px;font-weight:700;color:var(--text);letter-spacing:.3px}
+.grid-badge{font-size:11px;color:var(--text2);background:var(--card2);border-radius:20px;padding:3px 12px}
+.grid-body{padding:16px 20px}
+.grid-bar{height:5px;border-radius:6px;background:var(--card2);overflow:hidden;margin:0 0 12px}
+.grid-fill{height:100%;border-radius:6px;background:linear-gradient(90deg,var(--primary),#818cf8)}
+.grid-traffic{font-size:13px;color:var(--text2);display:flex;gap:20px;margin-bottom:8px}
+.grid-traffic span{display:flex;align-items:center;gap:4px}
+.grid-status{display:flex;gap:8px;flex-wrap:wrap;margin-top:4px;font-size:12px;color:var(--text2)}
+.grid-status span{padding:2px 8px;border-radius:6px;background:rgba(255,255,255,.03)}
 
 /* Node list */
 .nlist{display:flex;flex-direction:column;gap:8px}
@@ -295,19 +300,31 @@ body{background:var(--bg);color:var(--text);font:14px/1.6 -apple-system,BlinkMac
   <!-- Groups View -->
   <div class="grid">
   {% for g in sorted_groups %}
+    {% set prefix = g.name[:2] %}
+    {% if '美' in prefix %}{% set icon = '🇺🇸' %}
+    {% elif '香' in prefix %}{% set icon = '🇭🇰' %}
+    {% elif '泰' in prefix %}{% set icon = '🇹🇭' %}
+    {% elif '马' in prefix or 'MY' in g.name %}{% set icon = '🇲🇾' %}
+    {% elif '日' in prefix %}{% set icon = '🇯🇵' %}
+    {% else %}{% set icon = '📦' %}{% endif %}
     <a href="/?group={{ g.name | urlencode }}" class="grid-item">
-      <div class="grid-name">{{ g.name }}</div>
-      <div class="grid-count">{{ g.count }} 条规则</div>
-      <div class="grid-bar"><div class="grid-fill" style="width:{{ g.bar_pct }}%"></div></div>
-      <div class="grid-traffic">
-        <span>▼ {{ g.in_str }}</span>
-        <span>▲ {{ g.out_str }}</span>
+      <div class="grid-head">
+        <div class="grid-name">{{ icon }} {{ g.name }}</div>
+        <span class="grid-badge">{{ g.count }} 条</span>
       </div>
-      <div class="grid-status">
-        {% if g.online %}<span><span class="dot dot-on"></span> {{ g.online }} 在线</span>{% endif %}
-        {% if g.offline %}<span><span class="dot dot-off"></span> {{ g.offline }} 离线</span>{% endif %}
-        {% if g.expired %}<span><span class="dot dot-exp"></span> {{ g.expired }} 过期</span>{% endif %}
-        {% if g.quotaExhausted %}<span style="color:#a78bfa">⚡ {{ g.quotaExhausted }} 达配额</span>{% endif %}
+      <div class="grid-body">
+        <div class="grid-bar"><div class="grid-fill" style="width:{{ g.bar_pct }}%"></div></div>
+        <div class="grid-traffic">
+          <span><span style="color:var(--primary)">▼</span> 入 {{ g.in_str }}</span>
+          <span><span style="color:var(--success)">▲</span> 出 {{ g.out_str }}</span>
+          <span style="margin-left:auto;color:var(--text2)">{{ g.used_str }}</span>
+        </div>
+        <div class="grid-status">
+          {% if g.online %}<span><span class="dot dot-on"></span> {{ g.online }} 在线</span>{% endif %}
+          {% if g.offline %}<span><span class="dot dot-off"></span> {{ g.offline }} 离线</span>{% endif %}
+          {% if g.expired %}<span><span class="dot dot-exp"></span> {{ g.expired }} 过期</span>{% endif %}
+          {% if g.quotaExhausted %}<span style="color:#a78bfa">⚡ {{ g.quotaExhausted }} 达配额</span>{% endif %}
+        </div>
       </div>
     </a>
   {% endfor %}
@@ -523,6 +540,25 @@ function toggleSwitch(el){
 
 function search(val){window.location.href='/?view=all&q='+encodeURIComponent(val)}
 function filterStatus(val){window.location.href='/?view=all&status='+val+'&q={{ q }}'}
+</script>
+<div class="vanta-bg" id="vantaBg"></div>
+<style>
+.vanta-bg{position:fixed;top:0;left:0;width:100%;height:100%;z-index:0;pointer-events:none}
+.content-box{position:relative;z-index:1}
+</style>
+<script defer src="/static/three.min.js"></script>
+<script defer src="/static/vanta.waves.min.js"></script>
+<script>
+(function(){
+  function initVanta(){
+    try{
+      if(typeof THREE==='undefined'||typeof VANTA==='undefined'){setTimeout(initVanta,500);return}
+      VANTA.WAVES({el:"#vantaBg",color:0x1a3050,color2:0x2a4a6c,waveHeight:18,shininess:25,zoom:0.85})
+    }catch(e){console.warn('Vanta:',e.message)}
+  }
+  if(document.readyState==='complete') initVanta()
+  else window.addEventListener('load',initVanta)
+})()
 </script>
 </body>
 </html>
