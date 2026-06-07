@@ -9,7 +9,7 @@
 # 6. Same DB schema → coexists with v13, no node disruption
 
 from flask import Flask, render_template, request, redirect, Response, session, jsonify
-import os, json, time, logging, secrets
+import os, json, time, logging, secrets, socket
 from datetime import datetime, timedelta
 from functools import wraps
 
@@ -349,9 +349,21 @@ def api_toggle(local):
     for item in data:
         if item.get('local') == local:
             item['enable'] = not item.get('enable', True)
+            enabled = item['enable']
             db.save(data)
-            haproxy.reload(data)
-            return jsonify({'ok': True, 'enable': item['enable']})
+            # Use HAProxy socket to enable/disable without full reload
+            try:
+                s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                s.settimeout(3)
+                s.connect(haproxy.sock)
+                cmd = f"enable server be_{local}/s{local}\n" if enabled else f"disable server be_{local}/s{local}\n"
+                s.sendall(cmd.encode())
+                s.close()
+                log.info(f"Toggle {local}: {'enabled' if enabled else 'disabled'} via socket")
+            except Exception as e:
+                log.warning(f"Socket toggle failed for {local}: {e}, falling back to reload")
+                haproxy.reload(data)
+            return jsonify({'ok': True, 'enable': enabled})
     return jsonify({'ok': False})
 
 @app.route('/backup')

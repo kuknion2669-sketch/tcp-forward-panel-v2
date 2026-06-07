@@ -216,28 +216,31 @@ class HAProxyCtl:
         with open(self.config_file, 'w') as f:
             f.write(cfg)
 
-        # Graceful reload via SIGHUP (preserves connections, no node drop)
+        # Graceful reload via SIGHUP (preserves connections)
         try:
-            subprocess.run('rm -f /run/haproxy.sock', shell=True, capture_output=True)
             pid = subprocess.getoutput('cat /run/haproxy.pid 2>/dev/null').strip()
             if pid and pid.isdigit():
                 subprocess.run(f'kill -USR1 {pid}', shell=True, capture_output=True, timeout=10)
+                # Wait for socket to be ready
+                sock_ok = False
+                for _ in range(10):
+                    try:
+                        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                        s.settimeout(1)
+                        s.connect(self.sock)
+                        s.close()
+                        sock_ok = True
+                        break
+                    except Exception:
+                        time.sleep(0.5)
+                if not sock_ok:
+                    log.warning("Socket not ready after SIGHUP, falling back to restart")
+                    subprocess.run('systemctl restart haproxy', shell=True, capture_output=True, timeout=10)
             else:
                 subprocess.run('systemctl restart haproxy', shell=True, capture_output=True, timeout=10)
         except Exception as e:
             log.error(f"Reload failed: {e}")
             subprocess.run('systemctl restart haproxy', shell=True, capture_output=True, timeout=10)
-
-        # Wait for socket to be ready after reload
-        for _ in range(10):
-            try:
-                s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-                s.settimeout(1)
-                s.connect(self.sock)
-                s.close()
-                break
-            except Exception:
-                time.sleep(0.5)
 
         # Disable exhausted nodes
         try:
