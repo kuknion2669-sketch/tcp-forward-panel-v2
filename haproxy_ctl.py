@@ -228,6 +228,17 @@ class HAProxyCtl:
             log.error(f"Reload failed: {e}")
             subprocess.run('systemctl restart haproxy', shell=True, capture_output=True, timeout=10)
 
+        # Wait for socket to be ready after reload
+        for _ in range(10):
+            try:
+                s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                s.settimeout(1)
+                s.connect(self.sock)
+                s.close()
+                break
+            except Exception:
+                time.sleep(0.5)
+
         # Disable exhausted nodes
         try:
             s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
