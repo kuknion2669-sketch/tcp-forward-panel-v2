@@ -57,10 +57,9 @@ class StatsCollector:
             c = cur[p]
 
             if not prev:
-                item['used_in'] = round(c['bin'] / (1024*1024), 1)
-                item['used_out'] = round(c['bout'] / (1024*1024), 1)
-                item['used'] = round(item['used_in'] + item['used_out'], 1)
-                changed = True
+                # First run: just save current cumulative as baseline
+                # Don't modify used values (they keep existing DB state)
+                pass
             else:
                 d_in = c['bin'] - prev['bin']
                 d_out = c['bout'] - prev['bout']
