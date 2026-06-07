@@ -216,11 +216,17 @@ class HAProxyCtl:
         with open(self.config_file, 'w') as f:
             f.write(cfg)
 
-        # Hot reload via systemctl
+        # Graceful reload via SIGHUP (preserves connections, no node drop)
         try:
-            subprocess.run('systemctl restart haproxy', shell=True, capture_output=True, timeout=10)
+            subprocess.run('rm -f /run/haproxy.sock', shell=True, capture_output=True)
+            pid = subprocess.getoutput('cat /run/haproxy.pid 2>/dev/null').strip()
+            if pid and pid.isdigit():
+                subprocess.run(f'kill -USR1 {pid}', shell=True, capture_output=True, timeout=10)
+            else:
+                subprocess.run('systemctl restart haproxy', shell=True, capture_output=True, timeout=10)
         except Exception as e:
             log.error(f"Reload failed: {e}")
+            subprocess.run('systemctl restart haproxy', shell=True, capture_output=True, timeout=10)
 
         # Disable exhausted nodes
         try:
