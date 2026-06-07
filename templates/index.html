@@ -337,7 +337,6 @@ body{background:var(--bg);color:var(--text);font:14px/1.6 -apple-system,BlinkMac
           <span class="bdg bdg-off"><span class="dot dot-off" style="width:5px;height:5px"></span> 离线</span>
         {% endif %}
         <button class="btn btn-ghost btn-xs" onclick="checkOne(this)" data-idx="{{ item._idx }}">检测</button>
-        <button class="btn btn-ghost btn-xs cr" data-idx="{{ item._idx }}" style="min-width:40px;color:var(--text3);font-size:11px"></button>
         <a href="/edit/{{ item._idx }}" class="btn btn-ghost btn-xs">编辑</a>
         <button class="btn btn-ghost btn-xs" onclick="toggleNode('{{ item.local }}', this)" title="点击停用/启用此节点转发">
           {% if item.enable %}停用{% else %}启用{% endif %}
@@ -404,16 +403,17 @@ function checkOne(btn){
 function checkAll(){
   var btn=document.getElementById('checkAllBtn');if(!btn)return
   btn.disabled=true;btn.textContent='检测中...'
-  var crs=document.querySelectorAll('.cr');
-  crs.forEach(function(e){e.textContent='...';e.style.color='#64748b'})
+  var cks=document.querySelectorAll('.btn-ghost.btn-xs[data-idx]');
+  cks.forEach(function(e){e.innerHTML='...'})
   fetch('/check_all').then(function(r){return r.json()}).then(function(d){
     if(!d.ok){btn.textContent='失败';btn.disabled=false;return}
     var r=d.results,ok=0,fail=0
-    crs.forEach(function(e){
+    cks.forEach(function(e){
       var idx=e.getAttribute('data-idx'),rr=r&&r[idx]
       if(!rr)return
-      if(rr.ok){e.textContent='OK '+rr.ms+'ms';e.style.color='#22c55e';ok++}
-      else{e.textContent='FAIL';e.style.color='#ef4444';e.title=rr.error||'';fail++}
+      if(rr.ok){e.innerHTML='OK '+rr.ms+'ms';e.style.color='#22c55e';ok++}
+      else{e.innerHTML='FAIL';e.style.color='#ef4444';e.title=rr.error||'';fail++}
+      (function(el){setTimeout(function(){el.innerHTML='检测';el.style.color='';el.title=''},5000)})(e)
     })
     btn.textContent='重测('+ok+'/'+fail+')';btn.disabled=false
   }).catch(function(){btn.textContent='Err';btn.disabled=false})
