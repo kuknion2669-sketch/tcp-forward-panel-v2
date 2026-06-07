@@ -81,12 +81,15 @@ body{background:var(--bg);color:var(--text);font:14px/1.6 -apple-system,BlinkMac
 .grid-name{font-size:15px;font-weight:700;color:var(--text);letter-spacing:.3px}
 .grid-badge{font-size:11px;color:var(--text2);background:var(--card2);border-radius:20px;padding:3px 12px}
 .grid-body{padding:16px 20px}
-.grid-bar{height:5px;border-radius:6px;background:var(--card2);overflow:hidden;margin:0 0 12px}
+.grid-bar{height:5px;border-radius:6px;background:var(--card2);overflow:hidden;margin:0 0 10px}
 .grid-fill{height:100%;border-radius:6px;background:linear-gradient(90deg,var(--primary),#818cf8)}
-.grid-traffic{font-size:13px;color:var(--text2);display:flex;gap:20px;margin-bottom:8px}
-.grid-traffic span{display:flex;align-items:center;gap:4px}
-.grid-status{display:flex;gap:8px;flex-wrap:wrap;margin-top:4px;font-size:12px;color:var(--text2)}
-.grid-status span{padding:2px 8px;border-radius:6px;background:rgba(255,255,255,.03)}
+.grid-traf-row{display:flex;align-items:center;padding:3px 0;font-size:13px}
+.grid-traf-row .lbl{color:var(--text2);width:48px;flex-shrink:0}
+.grid-traf-row .val{color:var(--text);font-weight:500;font-variant-numeric:tabular-nums}
+.grid-traf-row .val small{color:var(--text2);font-weight:400;font-size:11px}
+.grid-traf-div{height:1px;background:var(--border);margin:6px 0}
+.grid-status{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+.grid-status span{padding:2px 10px;border-radius:6px;font-size:12px;background:rgba(255,255,255,.03)}
 
 /* Node list */
 .nlist{display:flex;flex-direction:column;gap:8px}
@@ -314,10 +317,18 @@ body{background:var(--bg);color:var(--text);font:14px/1.6 -apple-system,BlinkMac
       </div>
       <div class="grid-body">
         <div class="grid-bar"><div class="grid-fill" style="width:{{ g.bar_pct }}%"></div></div>
-        <div class="grid-traffic">
-          <span><span style="color:var(--primary)">▼</span> 入 {{ g.in_str }}</span>
-          <span><span style="color:var(--success)">▲</span> 出 {{ g.out_str }}</span>
-          <span style="margin-left:auto;color:var(--text2)">{{ g.used_str }}</span>
+        <div class="grid-traf-row">
+          <span class="lbl">▼ 入</span>
+          <span class="val">{{ g.in_str }}</span>
+        </div>
+        <div class="grid-traf-row">
+          <span class="lbl">▲ 出</span>
+          <span class="val">{{ g.out_str }}</span>
+        </div>
+        <div class="grid-traf-div"></div>
+        <div class="grid-traf-row">
+          <span class="lbl" style="color:var(--text)">≡ 合计</span>
+          <span class="val">{{ g.used_str }}</span>
         </div>
         <div class="grid-status">
           {% if g.online %}<span><span class="dot dot-on"></span> {{ g.online }} 在线</span>{% endif %}
