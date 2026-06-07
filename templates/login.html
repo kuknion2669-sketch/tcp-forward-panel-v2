@@ -1,43 +1,70 @@
 <!DOCTYPE html>
-<html><head><meta charset=utf-8><title>登录</title>
+<html><head><meta charset=utf-8><title>登录 — TCP 转发管理</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
-body::before{content:"";position:fixed;top:0;left:0;right:0;bottom:0;background:radial-gradient(ellipse at 50% 0%,rgba(0,229,255,.08) 0%,transparent 50%),radial-gradient(ellipse at 80% 50%,rgba(124,58,237,.05) 0%,transparent 50%);background-size:200% 200%;animation:wM 12s ease-in-out infinite;pointer-events:none;z-index:0}@keyframes wM{0%,100%{background-position:0% 50%}25%{background-position:100% 30%}50%{background-position:200% 50%}75%{background-position:100% 70%}}
-body{background:#0f172a;
-background-image:radial-gradient(ellipse at 50% 0%,rgba(0,229,255,.05) 0%,transparent 50%);background-attachment:fixed;color:#f1f5f9;font-family:system-ui;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}
-.card{background:#1e293b;border-radius:16px;padding:32px;width:360px;border:1px solid rgba(255,255,255,.1)}
-h2{color:#d0daf0;font-weight:400;text-align:center;margin-bottom:24px}
-input{width:100%;padding:10px 14px;margin:8px 0;border-radius:8px;border:1px solid rgba(255,255,255,.1);background:rgba(0,0,0,.3);color:#f1f5f9;font-size:14px;box-sizing:border-box;outline:none}
-input:focus{border-color:#667eea}
-button{width:100%;padding:10px;border-radius:8px;border:none;background:#667eea;color:white;font-size:14px;cursor:pointer;margin-top:12px}
-button:hover{filter:brightness(1.1)}
-.error{color:#f87171;font-size:13px;text-align:center;margin-top:8px}
-</style><script defer src="/static/three.min.js"></script>
+*{margin:0;padding:0;box-sizing:border-box}
+body{
+  background:#070b14;color:#e2e8f0;
+  font:14px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+  display:flex;align-items:center;justify-content:center;min-height:100vh;
+  background-image:radial-gradient(ellipse at 50% 0%,rgba(59,130,246,.06) 0%,transparent 60%);
+}
+.login-card{
+  background:#0d1225;border:1px solid #1e293b;border-radius:12px;
+  padding:40px;width:380px;position:relative;z-index:1;
+}
+.login-logo{
+  width:40px;height:40px;border-radius:10px;
+  background:linear-gradient(135deg,#3b82f6,#6366f1);
+  display:flex;align-items:center;justify-content:center;
+  font-size:20px;color:#fff;font-weight:700;margin:0 auto 16px;
+}
+h2{text-align:center;font-size:16px;font-weight:600;margin-bottom:4px}
+.sub{text-align:center;font-size:12px;color:#64748b;margin-bottom:28px}
+label{display:block;font-size:12px;color:#64748b;margin-bottom:4px}
+input{
+  width:100%;padding:9px 14px;margin-bottom:16px;
+  border-radius:6px;border:1px solid #1e293b;
+  background:#111827;color:#e2e8f0;font-size:14px;outline:none
+}
+input:focus{border-color:#3b82f6}
+button{
+  width:100%;padding:10px;border-radius:6px;border:none;
+  background:#3b82f6;color:#fff;font-size:14px;font-weight:500;cursor:pointer;margin-top:4px
+}
+button:hover{background:#2563eb}
+.divider{border-top:1px solid #1e293b;margin-top:20px;padding-top:16px;text-align:center;font-size:11px;color:#475569}
+.error{color:#ef4444;font-size:12px;text-align:center;margin-top:12px}
+</style>
+<script defer src="/static/three.min.js"></script>
 <script defer src="/static/vanta.waves.min.js"></script>
 </head><body>
-<div class=card><h2>TCP 管理面板</h2>
-<form method=post>
-<input name=username placeholder="账号" required>
-<input name=password type=password placeholder="密码" required>
-<button type=submit>登录</button>
-<div style="margin-top:16px;padding-top:12px;border-top:1px solid rgba(255,255,255,0.08);font-size:12px;color:#64748b;text-align:center">初始账号: admin / admin123</div>
-</form>
-{% if error %}<div class=error>{{ error }}</div>{% endif %}
-</div><div class="vanta-bg" id="vantaBg"></div>
+<div class="login-card">
+  <div class="login-logo">⛭</div>
+  <h2>TCP 转发管理</h2>
+  <div class="sub">请登录以继续</div>
+  <form method=post>
+    <label>账号</label><input name=username placeholder="输入账号" required>
+    <label>密码</label><input name=password type=password placeholder="输入密码" required>
+    <button type=submit>登 录</button>
+    {% if error %}<div class=error>{{ error }}</div>{% endif %}
+  </form>
+  <div class="divider">初始账号: admin / admin123</div>
+</div>
+<div class="vanta-bg" id="vantaBg"></div>
 <style>
 .vanta-bg{position:fixed;top:0;left:0;width:100%;height:100%;z-index:0;pointer-events:none}
-.card{position:relative;z-index:1}
 </style>
 <script>
 (function(){
   function initVanta(){
     try{
-      if(typeof THREE==='undefined'||typeof VANTA==='undefined'){setTimeout(initVanta,500);return;}
-      VANTA.WAVES({el:"#vantaBg",color:0x2a6f8f,color2:0x3a8faf,waveHeight:25,shininess:40,zoom:0.8});
-    }catch(e){console.warn('Vanta:',e.message);}
+      if(typeof THREE==='undefined'||typeof VANTA==='undefined'){setTimeout(initVanta,500);return}
+      VANTA.WAVES({el:"#vantaBg",color:0x1a3a5c,color2:0x2a4a7c,waveHeight:20,shininess:30,zoom:0.85})
+    }catch(e){console.warn('Vanta:',e.message)}
   }
-  if(document.readyState==='complete') initVanta();
-  else window.addEventListener('load',initVanta);
-})();
+  if(document.readyState==='complete') initVanta()
+  else window.addEventListener('load',initVanta)
+})()
 </script>
 </body></html>

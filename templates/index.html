@@ -3,106 +3,226 @@
 <head>
 <meta charset="UTF-8">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-<meta http-equiv="Pragma" content="no-cache">
-<meta http-equiv="Expires" content="0">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
 <title>TCP 转发管理</title>
 <style>
 :root{
-  --bg:#0a0e1a;--card:#0f1528;--border:#1a2340;--text:#d0daf0;--text2:#8899bb;
-  --cyan:#00e5ff;--pink:#ff0088;--purple:#7c3aed;--green:#00ff88;--gold:#ffbb00;--red:#ff2255;
+  --bg:#070b14;--card:#0d1225;--card2:#111827;--border:#1e293b;
+  --text:#e2e8f0;--text2:#64748b;--text3:#475569;
+  --primary:#3b82f6;--primary-dim:#1d4ed8;--primary-glow:rgba(59,130,246,.15);
+  --success:#22c55e;--danger:#ef4444;--warn:#eab308;--info:#06b6d4;
+  --radius:10px;--radius-sm:6px;
 }
 *{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--bg);color:var(--text);font:14px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;padding:0;min-height:100vh}
 
+.topbar{
+  background:var(--card);border-bottom:1px solid var(--border);
+  padding:0 28px;height:56px;display:flex;align-items:center;justify-content:space-between;
+  position:sticky;top:0;z-index:100;
+}
+.brand{display:flex;align-items:center;gap:12px}
+.brand-icon{
+  width:32px;height:32px;border-radius:8px;
+  background:linear-gradient(135deg,var(--primary),#6366f1);
+  display:flex;align-items:center;justify-content:center;
+  font-size:16px;color:#fff;font-weight:700;
+}
+.brand-text{font-size:15px;font-weight:600;letter-spacing:.3px}
+.brand-text span{color:var(--text2);font-weight:400}
+.top-actions{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
 
-25%{background-position:100% 30%}50%{background-position:200% 50%}75%{background-position:100% 70%}}
+.container{max-width:1320px;margin:0 auto;padding:24px 28px}
 
-body{background:var(--bg);color:var(--text);font:15px/1.5 system-ui,sans-serif;padding:20px;min-height:100vh}
+/* Stats row */
+.stats-row{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:24px}
+.stat-card{
+  background:var(--card);border:1px solid var(--border);border-radius:var(--radius);
+  padding:20px 24px;display:flex;align-items:center;gap:16px;
+}
+.stat-icon{
+  width:44px;height:44px;border-radius:var(--radius-sm);
+  display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0
+}
+.stat-icon.blue{background:rgba(59,130,246,.12)}
+.stat-icon.green{background:rgba(34,197,94,.12)}
+.stat-icon.purple{background:rgba(139,92,246,.12)}
+.stat-body{min-width:0}
+.stat-val{font-size:22px;font-weight:700;line-height:1.2}
+.stat-lbl{font-size:12px;color:var(--text2);margin-top:1px}
 
-.container{max-width:1200px;margin:0 auto;position:relative;z-index:1}
-.content-box{background:rgba(10,14,26,.85);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
-  border:1px solid rgba(255,255,255,.05);border-radius:16px;padding:20px;min-height:calc(100vh - 40px);position:relative;z-index:1}
-.hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px}
-.hdr h1{font-size:1.3rem;font-weight:800}.hdr h1 span{color:var(--cyan)}.hdr .sub{font-size:.82rem;color:var(--text2)}
-a{color:inherit;text-decoration:none}
-.st{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px}
-.st-box{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:18px;text-align:center}
-.st-box .n{font-size:1.5rem;font-weight:800;color:var(--cyan)}.st-box .l{font-size:.72rem;color:var(--text2);margin-top:4px}
-.card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:20px;margin-bottom:16px}
-.gc{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px;margin-bottom:20px}
-.gc-item{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:18px;display:block;transition:all .2s}
-.gc-item:hover{border-color:var(--cyan);transform:translateY(-2px)}
-.gc-name{font-size:1rem;font-weight:700;margin-bottom:6px;color:var(--cyan)}
-.gc-cnt{font-size:.78rem;color:var(--text2);margin-bottom:4px}
-.gc-bar{background:rgba(0,229,255,.08);border-radius:20px;height:4px;overflow:hidden;margin:6px 0}
-.gc-fill{height:100%;border-radius:20px;background:var(--cyan)}
-.gc-traf{font-size:.75rem;color:var(--text2)}
-.gc-inout{font-size:.68rem;color:var(--text2);margin-top:2px}
-.gc-status{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;font-size:.78rem;color:var(--text2)}
-.dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:3px;vertical-align:middle}
-.dot-on{background:var(--green)}.dot-off{background:var(--red)}.dot-exp{background:var(--gold)}
-.tb{display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap;align-items:center}
-.tb input,.tb select{padding:8px 12px;border-radius:6px;border:1px solid var(--border);background:rgba(0,0,0,0.4);color:var(--text);font-size:.85rem;outline:none}
-.tb input:focus,.tb select:focus{border-color:var(--cyan)}
-.tabs{display:flex;margin-bottom:18px;border-bottom:1px solid var(--border)}
-.tab{background:none;color:var(--text2);padding:8px 18px;font-size:.85rem;font-weight:500;border-bottom:2px solid transparent;margin-bottom:-1px;transition:all .15s}
-.tab:hover{color:var(--text)}.tab.act{color:var(--cyan);border-bottom-color:var(--cyan)}
-.nl{display:flex;flex-direction:column;gap:8px}
-.nd{background:rgba(255,255,255,.02);border:1px solid var(--border);border-radius:8px;padding:14px;display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center}
-.nd:hover{background:rgba(0,229,255,.03);border-color:rgba(0,229,255,.2)}
-.nd-info{flex:1;min-width:180px}
-.nd-name{font-weight:600;font-size:.9rem;margin-bottom:2px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;color:var(--text)}
-.nd-route{font-family:monospace;font-size:.92rem;color:var(--cyan);background:rgba(0,229,255,.06);border:1px solid rgba(0,229,255,.12);border-radius:5px;padding:3px 10px;display:inline-block}
-.nd-meta{font-size:.78rem;color:var(--text2);margin-top:4px;display:flex;gap:12px;flex-wrap:wrap}
-.nd-acts{display:flex;gap:4px;flex-wrap:wrap}.bdg{display:inline-block;padding:2px 8px;border-radius:3px;font-size:.65rem;font-weight:600;border:1px solid}
-.bdg-on{background:rgba(0,255,136,.08);color:var(--green);border-color:rgba(0,255,136,.2)}
-.bdg-off{background:rgba(255,34,85,.08);color:var(--red);border-color:rgba(255,34,85,.2)}
-.bdg-exp{background:rgba(255,187,0,.08);color:var(--gold);border-color:rgba(255,187,0,.2)}
-.bdg-quota{background:rgba(124,58,237,.08);color:var(--purple);border-color:rgba(124,58,237,.2)}
-.grp-tag{font-size:.6rem;color:var(--text2);border:1px solid var(--border);border-radius:3px;padding:1px 5px}
-.btn{display:inline-block;padding:6px 14px;border-radius:5px;font-size:.85rem;font-weight:500;cursor:pointer;border:1px solid transparent;transition:all .15s}
-.btn-pri{background:var(--cyan);color:var(--bg);font-weight:600}.btn-pri:hover{opacity:.9}
-.btn-gho{background:transparent;color:var(--text2);border-color:var(--border)}.btn-gho:hover{border-color:var(--text2);color:var(--text)}
-.btn-dgr{background:rgba(255,34,85,.1);color:var(--red);border-color:rgba(255,34,85,.2)}.btn-dgr:hover{background:var(--red);color:#fff}
-.btn-sm{padding:4px 10px;font-size:.8rem}
-.pb{background:rgba(0,229,255,.08);border-radius:4px;height:8px;width:120px;overflow:hidden;display:inline-block;vertical-align:middle}
-.pf{display:block;height:100%;border-radius:4px;background:var(--cyan)}
-.modal{display:none;position:fixed;inset:0;z-index:1000;align-items:center;justify-content:center;background:rgba(0,0,0,.7);backdrop-filter:blur(4px)}
-.modal:target{display:flex}.modal-card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:24px;width:90%;max-width:520px;max-height:90vh;overflow-y:auto}
-.chart-section{margin-bottom:24px}.chart-section h3{font-size:.85rem;color:var(--text2);margin-bottom:12px;font-weight:600}
-.ft{text-align:center;font-size:.72rem;color:var(--text2);margin-top:30px;opacity:.4}
-@media(max-width:720px){body{padding:10px}.content-box{padding:12px}.st,.gc{grid-template-columns:1fr}.tb{flex-direction:column}.tb input,.tb select{width:100%!important}.nd{flex-direction:column}
+/* Tabs */
+.tabs{display:flex;gap:0;margin-bottom:20px;border-bottom:1px solid var(--border)}
+.tab{
+  padding:10px 20px;font-size:13px;font-weight:500;color:var(--text2);
+  border-bottom:2px solid transparent;margin-bottom:-1px;cursor:pointer;
+  transition:color .15s,border-color .15s;
+}
+.tab:hover{color:var(--text)}
+.tab.active{color:var(--primary);border-bottom-color:var(--primary)}
+
+/* Toolbar */
+.toolbar{display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap;align-items:center}
+.toolbar input,.toolbar select{
+  padding:7px 12px;border-radius:var(--radius-sm);border:1px solid var(--border);
+  background:var(--card2);color:var(--text);font-size:13px;outline:none;min-width:150px
+}
+.toolbar input:focus,.toolbar select:focus{border-color:var(--primary)}
+
+/* Groups grid */
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;margin-bottom:24px}
+.grid-item{
+  background:var(--card);border:1px solid var(--border);border-radius:var(--radius);
+  padding:18px;cursor:pointer;transition:border-color .15s,transform .15s;display:block
+}
+.grid-item:hover{border-color:var(--primary);transform:translateY(-1px)}
+.grid-name{font-size:14px;font-weight:600;margin-bottom:4px;color:var(--text)}
+.grid-count{font-size:12px;color:var(--text2);margin-bottom:4px}
+.grid-bar{height:4px;border-radius:4px;background:var(--card2);overflow:hidden;margin:8px 0}
+.grid-fill{height:100%;border-radius:4px;background:linear-gradient(90deg,var(--primary),#6366f1)}
+.grid-traffic{font-size:12px;color:var(--text2);display:flex;gap:16px;flex-wrap:wrap}
+.grid-status{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;font-size:11px;color:var(--text2)}
+
+/* Node list */
+.nlist{display:flex;flex-direction:column;gap:8px}
+.node{
+  background:var(--card);border:1px solid var(--border);border-radius:var(--radius);
+  padding:16px 20px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:center;
+  transition:border-color .1s
+}
+.node:hover{border-color:var(--text3)}
+.node-info{flex:1;min-width:200px}
+.node-name{font-weight:600;font-size:14px;margin-bottom:2px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.node-route{
+  font-family:"SF Mono",Consolas,monospace;font-size:13px;
+  color:var(--primary);background:var(--primary-glow);border:1px solid rgba(59,130,246,.2);
+  border-radius:4px;padding:2px 10px;display:inline-block
+}
+.node-meta{font-size:12px;color:var(--text2);margin-top:4px;display:flex;gap:16px;flex-wrap:wrap}
+.node-actions{display:flex;gap:4px;flex-wrap:wrap}
+
+/* Badges */
+.bdg{
+  display:inline-flex;align-items:center;gap:4px;
+  padding:2px 8px;border-radius:4px;font-size:11px;font-weight:500
+}
+.bdg-on{background:rgba(34,197,94,.1);color:var(--success)}
+.bdg-off{background:rgba(239,68,68,.1);color:var(--danger)}
+.bdg-exp{background:rgba(234,179,8,.1);color:var(--warn)}
+.bdg-quota{background:rgba(139,92,246,.1);color:#a78bfa}
+
+/* Buttons */
+.btn{
+  display:inline-flex;align-items:center;gap:4px;
+  padding:6px 14px;border-radius:var(--radius-sm);font-size:13px;font-weight:500;
+  cursor:pointer;border:1px solid transparent;transition:all .12s;line-height:1.4
+}
+.btn-primary{background:var(--primary);color:#fff}.btn-primary:hover{background:var(--primary-dim)}
+.btn-ghost{background:transparent;color:var(--text2);border-color:var(--border)}.btn-ghost:hover{border-color:var(--text2);color:var(--text)}
+.btn-danger{background:rgba(239,68,68,.1);color:var(--danger);border-color:rgba(239,68,68,.2)}.btn-danger:hover{background:var(--danger);color:#fff;border-color:var(--danger)}
+.btn-sm{padding:4px 10px;font-size:12px}
+.btn-xs{padding:3px 8px;font-size:11px;border-radius:4px}
+.btn-icon{width:28px;height:28px;padding:0;display:inline-flex;align-items:center;justify-content:center;font-size:14px}
+
+/* Progress bar */
+.pb{height:6px;border-radius:4px;background:var(--card2);overflow:hidden;width:100px;display:inline-block;vertical-align:middle}
+.pf{display:block;height:100%;border-radius:4px;background:var(--primary)}
+
+/* Modal */
+.modal-bg{display:none;position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.6);backdrop-filter:blur(4px);align-items:center;justify-content:center}
+.modal-bg.open{display:flex}
+.modal-box{
+  background:var(--card);border:1px solid var(--border);border-radius:12px;
+  padding:28px;width:90%;max-width:520px;max-height:90vh;overflow-y:auto
+}
+.modal-box h3{font-size:16px;font-weight:600;margin-bottom:20px;color:var(--text)}
+.modal-box label{display:block;font-size:12px;color:var(--text2);margin:12px 0 4px}
+.modal-box input,.modal-box textarea{
+  width:100%;padding:8px 12px;border-radius:var(--radius-sm);border:1px solid var(--border);
+  background:var(--card2);color:var(--text);font-size:13px;outline:none
+}
+.modal-box input:focus{border-color:var(--primary)}
+
+/* Chart */
+.chart-section{margin-bottom:28px}
+.chart-section h3{font-size:13px;color:var(--text2);font-weight:600;margin-bottom:12px}
+
+/* Group tag */
+.grp-tag{font-size:10px;color:var(--text3);border:1px solid var(--border);border-radius:3px;padding:1px 5px}
+
+/* Footer */
+.footer{text-align:center;font-size:11px;color:var(--text3);margin-top:40px;padding-bottom:20px}
+
+/* Dot indicator */
+.dot{display:inline-block;width:6px;height:6px;border-radius:50%;vertical-align:middle}
+.dot-on{background:var(--success)}
+.dot-off{background:var(--danger)}
+.dot-exp{background:var(--warn)}
+
+@media(max-width:720px){
+  .container{padding:16px}
+  .topbar{padding:0 16px}
+  .stats-row{grid-template-columns:1fr}
+  .toolbar{flex-direction:column}
+  .toolbar input,.toolbar select{width:100%!important;min-width:0}
+  .node{flex-direction:column}
+}
 </style>
-<script defer src="/static/three.min.js"></script>
-<script defer src="/static/vanta.waves.min.js"></script>
 <script defer src="/static/echarts.min.js"></script>
 </head>
-<body><div class="container"><div class="content-box">
+<body>
 
-<div class="hdr">
-  <a href="/" style="text-decoration:none"><h1 style="font-size:1.5rem;font-weight:800;letter-spacing:-0.5px;background:linear-gradient(135deg,#00e5ff 0%,#a78bfa 50%,#ff0088 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin:0"><span style="font-weight:300;color:var(--text);-webkit-text-fill-color:var(--text)">TCP</span> 转发管理</h1><div class="sub" style="margin-top:2px">{{ rule_count }} 条规则 · 实时转发</div></a>
-  <div style="display:flex;gap:6px;flex-wrap:wrap">
-    <a href="javascript:void(0)" class="btn btn-pri btn-sm" onclick="showModal()">+ 新建</a>
-    <a href="/settings" class="btn btn-gho btn-sm">设置</a>
-    <a href="/logout" class="btn btn-gho btn-sm">退出</a>
-    <a href="/backup" class="btn btn-gho btn-sm">导出</a>
-    <button class="btn btn-pri btn-sm" onclick="location.reload()">刷新</button>
-    <button class="btn btn-gho btn-sm" onclick="window.location.href='/haproxy'">连接状态</button>
-    <a href="/events" class="btn btn-gho btn-sm">操作日志</a>
+<!-- Top Bar -->
+<div class="topbar">
+  <a href="/" style="text-decoration:none;color:inherit">
+    <div class="brand">
+      <div class="brand-icon">⛭</div>
+      <div class="brand-text">TCP 转发管理 <span>v14</span></div>
+    </div>
+  </a>
+  <div class="top-actions">
+    <button class="btn btn-primary btn-sm" onclick="showModal()">+ 新建规则</button>
+    <a href="/settings" class="btn btn-ghost btn-sm">设置</a>
+    <a href="/haproxy" class="btn btn-ghost btn-sm">连接</a>
+    <a href="/events" class="btn btn-ghost btn-sm">日志</a>
+    <a href="/backup" class="btn btn-ghost btn-sm">导出</a>
+    <button class="btn btn-ghost btn-sm" onclick="location.reload()">刷新</button>
+    <a href="/logout" class="btn btn-ghost btn-sm">退出</a>
   </div>
 </div>
 
-<div class="st">
-  <div class="st-box"><div class="n">{{ total_quota }}</div><div class="l">总配额 (GB)</div></div>
-  <div class="st-box"><div class="n">{{ total_used }}</div><div class="l">已用流量</div></div>
-  <div class="st-box"><div class="n">{{ rule_count }}</div><div class="l">转发规则</div></div>
+<div class="container">
+
+<!-- Stats -->
+<div class="stats-row">
+  <div class="stat-card">
+    <div class="stat-icon blue">📦</div>
+    <div class="stat-body">
+      <div class="stat-val">{{ total_quota }}</div>
+      <div class="stat-lbl">总配额 (GB)</div>
+    </div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-icon green">📊</div>
+    <div class="stat-body">
+      <div class="stat-val">{{ total_used }}</div>
+      <div class="stat-lbl">已用流量</div>
+    </div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-icon purple">🔗</div>
+    <div class="stat-body">
+      <div class="stat-val">{{ rule_count }}</div>
+      <div class="stat-lbl">转发规则</div>
+    </div>
+  </div>
 </div>
 
+<!-- Chart -->
 {% if history %}
 <div class="chart-section">
   <h3>📈 近30天流量趋势</h3>
-  <div id="chart" style="width:100%;height:280px;"></div>
+  <div id="chart" style="width:100%;height:260px;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:12px"></div>
 </div>
 <script>
 (function(){
@@ -113,315 +233,208 @@ a{color:inherit;text-decoration:none}
       if (typeof echarts === 'undefined') { setTimeout(initChart, 500); return; }
       var chart = echarts.init(document.getElementById('chart'));
       var dates = rawHistory.map(function(d) { return d.short_date; });
-      var inVals = rawHistory.map(function(d) {
-        return d.total_in === undefined ? 0 : d.total_in;
-      });
-      var outVals = rawHistory.map(function(d) {
-        return d.total_out === undefined ? 0 : d.total_out;
-      });
+      var inVals = rawHistory.map(function(d) { return d.total_in === undefined ? 0 : d.total_in; });
+      var outVals = rawHistory.map(function(d) { return d.total_out === undefined ? 0 : d.total_out; });
       chart.setOption({
-        tooltip: {
-          trigger: 'axis',
-          axisPointer: { type: 'shadow' },
-          formatter: function(params) {
-            var raw = rawHistory[params[0].dataIndex];
-            return raw.date + '<br/>' +
-              '<span style="color:#00e5ff">▼ 入站:</span> ' + (raw.total_in_display || '0 MB') + '<br/>' +
-              '<span style="color:#ffbb00">▲ 出站:</span> ' + (raw.total_out_display || '0 MB') + '<br/>' +
-              '<span style="color:#a78bfa;font-weight:bold">合计:</span> ' + (raw.total_display || '0 MB');
+        tooltip:{
+          trigger:'axis',axisPointer:{type:'shadow'},
+          formatter:function(p){
+            var r=rawHistory[p[0].dataIndex];
+            return r.date+'<br/>'+
+              '<span style="color:#3b82f6">▼ 入站:</span> '+(r.total_in_display||'0 MB')+'<br/>'+
+              '<span style="color:#22c55e">▲ 出站:</span> '+(r.total_out_display||'0 MB')+'<br/>'+
+              '<span style="color:#e2e8f0;font-weight:600">合计:</span> '+(r.total_display||'0 MB');
           }
         },
-        legend: { data: ['合计','出站','入站'], textStyle: { color: '#8899bb', fontSize: 11 }, top: 0, right: 10 },
-        grid: { left: '3%', right: '4%', bottom: '15%', top: '22%', containLabel: true },
-        xAxis: { type: 'category', data: dates, axisLabel: { color: '#8899bb', fontSize: 10, interval: 'auto' }, axisLine: { lineStyle: { color: '#1a2340' } } },
-        yAxis: { type: 'value', name: 'MB', nameTextStyle: { color: '#8899bb', fontSize: 10 }, axisLabel: { color: '#8899bb', fontSize: 10 }, splitLine: { lineStyle: { color: 'rgba(255,255,255,0.05)' } } },
-        dataZoom: dates.length > 7 ? [{
-          type: 'slider',
-          show: true,
-          start: 0,
-          end: Math.min(100, 7/dates.length*100),
-          height: 20,
-          bottom: 8,
-          borderColor: 'rgba(0,229,255,0.2)',
-          backgroundColor: 'rgba(0,229,255,0.05)',
-          fillerColor: 'rgba(0,229,255,0.15)',
-          handleStyle: { color: '#00e5ff' },
-          textStyle: { color: '#8899bb', fontSize: 10 }
-        }] : [],
-        series: [
-          {
-            name: '合计',
-            type: 'line',
-            data: rawHistory.map(function(d) {
-              return +((d.total_in || 0) + (d.total_out || 0)).toFixed(1);
-            }),
-            smooth: true,
-            symbol: 'none',
-            lineStyle: { width: 2, color: '#a78bfa' },
-            areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [
-              { offset: 0, color: 'rgba(167,139,250,0.35)' },
-              { offset: 1, color: 'rgba(167,139,250,0.02)' }
-            ] } },
-            z: 5
-          },
-          {
-            name: '出站',
-            type: 'bar',
-            stack: 'traffic',
-            data: outVals,
-            barWidth: '60%',
-            itemStyle: {
-              color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [
-                { offset: 0, color: '#ffbb00' },
-                { offset: 1, color: 'rgba(255,187,0,0.5)' }
-              ] },
-              borderRadius: [0,0,0,0]
-            }
-          },
-          {
-            name: '入站',
-            type: 'bar',
-            stack: 'traffic',
-            data: inVals,
-            barWidth: '60%',
-            itemStyle: {
-              color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [
-                { offset: 0, color: '#00e5ff' },
-                { offset: 1, color: 'rgba(0,229,255,0.5)' }
-              ] },
-              borderRadius: [4,4,0,0]
-            }
-          }
+        legend:{data:['出站','入站'],textStyle:{color:'#64748b',fontSize:11},top:5,right:10},
+        grid:{left:'3%',right:'4%',bottom:'15%',top:'25%',containLabel:true},
+        xAxis:{type:'category',data:dates,axisLabel:{color:'#64748b',fontSize:10,interval:'auto'},axisLine:{lineStyle:{color:'#1e293b'}}},
+        yAxis:{type:'value',name:'MB',nameTextStyle:{color:'#64748b',fontSize:10},axisLabel:{color:'#64748b',fontSize:10},splitLine:{lineStyle:{color:'rgba(255,255,255,0.04)'}}},
+        dataZoom:dates.length>7?[{type:'slider',show:true,start:0,end:Math.min(100,7/dates.length*100),height:18,bottom:6,borderColor:'rgba(59,130,246,0.2)',backgroundColor:'rgba(59,130,246,0.05)',fillerColor:'rgba(59,130,246,0.15)',handleStyle:{color:'#3b82f6'},textStyle:{color:'#64748b',fontSize:10}}]:[],
+        series:[
+          {name:'出站',type:'bar',stack:'traffic',data:outVals,barWidth:'50%',
+            itemStyle:{color:'#22c55e',borderRadius:[4,4,0,0]}},
+          {name:'入站',type:'bar',stack:'traffic',data:inVals,barWidth:'50%',
+            itemStyle:{color:'#3b82f6',borderRadius:[0,0,0,0]}}
         ]
       });
-      window.addEventListener('resize', function(){ chart.resize(); });
-    } catch(e) { console.error('Chart error:', e); }
+      window.addEventListener('resize',function(){chart.resize()});
+    }catch(e){console.error('Chart:',e.message);}
   }
-  if (typeof echarts !== 'undefined') initChart();
-  else setTimeout(initChart, 200);
+  if(typeof echarts!=='undefined') initChart(); else setTimeout(initChart,200);
 })();
 </script>
 {% endif %}
 
+<!-- Tabs -->
 <div class="tabs">
-  <a href="/" class="tab{% if view == 'groups' or not view %} act{% endif %}">分组视图</a>
-  <a href="/?view=all" class="tab{% if view == 'all' %} act{% endif %}">全部节点</a>
+  <a href="/" class="tab{% if view == 'groups' or not view %} active{% endif %}">分组视图</a>
+  <a href="/?view=all" class="tab{% if view == 'all' %} active{% endif %}">全部节点</a>
 </div>
 
-{% if view == 'all' %}
-<div class="card">
-  <div class="tb">
-    <form method="get" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-      <input type="hidden" name="view" value="all">
-      <input name="q" placeholder="搜索名称/IP..." value="{{ q }}" style="width:200px">
-      <select name="status">
-        <option value="all"{% if sf=='all' %}selected{% endif %}>全部</option>
-        <option value="online"{% if sf=='online' %}selected{% endif %}>在线</option>
-        <option value="offline"{% if sf=='offline' %}selected{% endif %}>离线</option>
-        <option value="expired"{% if sf=='expired' %}selected{% endif %}>过期</option>
-        <option value="quota"{% if sf=='quota' %}selected{% endif %}>耗尽</option>
-      </select>
-      <button class="btn btn-pri btn-sm" type="submit">搜索</button>
-      <button class="btn btn-pri btn-sm" type="button" id="checkAllBtn" onclick="checkAll()">一键检测</button>
-      <a href="/?view=all" class="btn btn-gho btn-sm">清除</a>
-    </form>
-    <div style="font-size:.75rem;color:var(--text2)">{{ filtered|length }} 条</div>
-  </div>
-  <div class="nl">
-  {% for item in filtered %}
-    <div class="nd">
-      <div class="nd-info">
-        <div class="nd-name">
-          <span class="bdg{% if item.expired %}bdg-exp{% elif item.quota>0 and item.used>=item.quota*1024 %}bdg-quota{% elif item.online %}bdg-on{% else %}bdg-off{% endif %}">
-            {% if item.expired %}已过期{% elif item.quota>0 and item.used>=item.quota*1024 %}耗尽{% elif item.online %}在线{% else %}离线{% endif %}
-          </span>
-          {{ item.name }}<span class="grp-tag">{{ item.group }}</span><span class="cr" data-idx="{{ item._idx }}"></span>
-        </div>
-        <div class="nd-route">{{ item.local }} &#8594; {{ item.ip }}:{{ item.port }}</div>
-        <div class="nd-meta">
-          {% if item.expire_time_display %}<span>{{ item.expire_time_display }}</span>{% endif %}
-          {% if item.note %}<span style="color:var(--text2);font-size:.75rem">📝 {{ item.note }}</span>{% endif %}
-          <span style="color:var(--cyan)">&#9660;入 {{ item.used_in_display }}</span>
-          <span style="color:var(--gold)">&#9650;出 {{ item.used_out_display }}</span>
-          <span>{% if item.quota > 0 %}<span class="pb"><span class="pf" style="width:{{ (item.used/(item.quota*1024)*100)|int }}%"></span></span> {{"%.1f"|format(item.used)}} MB / {{ item.quota }} GB{% else %}不限量{% endif %}</span>
-        </div>
-      </div>
-      <div class="nd-acts" style="display:flex;gap:4px;flex-wrap:wrap;align-items:center">
-        <div style="display:flex;gap:4px">
-          <button class="btn btn-gho btn-sm" data-idx="{{ item._idx }}" onclick="checkOne(this)">检测</button>
-          <a href="/edit/{{ item._idx }}" class="btn btn-gho btn-sm">编辑</a>
-          <a href="/reset_quota/{{ item._idx }}" class="btn btn-gho btn-sm" onclick="return confirm('确定重置？')">重置</a>
-          <a href="/restart/{{ item.local }}" class="btn btn-gho btn-sm">重启</a>
-        </div>
-        <a href="javascript:void(0)" class="btn btn-dgr btn-sm" onclick="deleteNode({{ item._idx }}, this)">删除</a>
-      </div>
-    </div>
-  {% endfor %}
-  {% if not filtered %}<div style="text-align:center;padding:30px;color:var(--text2)">暂无规则</div>{% endif %}
-  </div>
-</div>
-{% elif view == 'detail' and group_filter %}
-<div class="card">
-  <div class="tb">
-    <form method="get" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-      <input type="hidden" name="group" value="{{ group_filter }}">
-      <input name="q" placeholder="搜索..." value="{{ q }}" style="width:200px">
-      <select name="status">
-        <option value="all"{% if sf=='all' %}selected{% endif %}>全部</option>
-        <option value="online"{% if sf=='online' %}selected{% endif %}>在线</option>
-        <option value="offline"{% if sf=='offline' %}selected{% endif %}>离线</option>
-        <option value="expired"{% if sf=='expired' %}selected{% endif %}>过期</option>
-        <option value="quota"{% if sf=='quota' %}selected{% endif %}>耗尽</option>
-      </select>
-      <button class="btn btn-pri btn-sm" type="submit">搜索</button>
-      <button class="btn btn-pri btn-sm" type="button" id="checkAllBtn2" onclick="checkAll()">一键检测</button>
-    </form>
-    <div style="font-size:.75rem;color:var(--text2)">{{ filtered|length }} 条</div>
-  </div>
-  <div class="nl">
-  {% for item in filtered %}
-    <div class="nd">
-      <div class="nd-info">
-        <div class="nd-name">
-          <span class="bdg{% if item.expired %}bdg-exp{% elif item.quota>0 and item.used>=item.quota*1024 %}bdg-quota{% elif item.online %}bdg-on{% else %}bdg-off{% endif %}">
-            {% if item.expired %}已过期{% elif item.quota>0 and item.used>=item.quota*1024 %}耗尽{% elif item.online %}在线{% else %}离线{% endif %}
-          </span>
-          {{ item.name }}<span class="grp-tag">{{ item.group }}</span><span class="cr" data-idx="{{ item._idx }}"></span>
-        </div>
-        <div class="nd-route">{{ item.local }} → {{ item.ip }}:{{ item.port }}</div>
-        <div class="nd-meta">
-          {% if item.expire_time_display %}<span>{{ item.expire_time_display }}</span>{% endif %}
-          <span style="color:var(--cyan)">▼入 {{ item.used_in_display }}</span>
-          <span style="color:var(--gold)">▲出 {{ item.used_out_display }}</span>
-          <span>{% if item.quota > 0 %}<span class="pb"><span class="pf" style="width:{{ (item.used/(item.quota*1024)*100)|int }}%"></span></span> {{"%.1f"|format(item.used)}} MB / {{ item.quota }} GB{% else %}不限量{% endif %}</span>
-        </div>
-      </div>
-      <div class="nd-acts" style="display:flex;gap:4px;flex-wrap:wrap;align-items:center">
-        <div style="display:flex;gap:4px">
-          <button class="btn btn-gho btn-sm" data-idx="{{ item._idx }}" onclick="checkOne(this)">检测</button>
-          <a href="/edit/{{ item._idx }}" class="btn btn-gho btn-sm">编辑</a>
-          <a href="/reset_quota/{{ item._idx }}" class="btn btn-gho btn-sm" onclick="return confirm('确定重置？')">重置</a>
-          <a href="/restart/{{ item.local }}" class="btn btn-gho btn-sm">重启</a>
-        </div>
-        <a href="javascript:void(0)" class="btn btn-dgr btn-sm" onclick="deleteNode({{ item._idx }}, this)">删除</a>
-      </div>
-    </div>
-  {% endfor %}
-  </div>
-</div>
-{% else %}
-<div class="gc">
-{% for g in sorted_groups %}
-  <a href="/?group={{ g.name | urlencode }}" class="gc-item">
-    <div class="gc-name">{{ g.name }}</div>
-    <div class="gc-cnt">{{ g.count }} 条规则</div>
-    <div class="gc-bar"><div class="gc-fill" style="width:{{ g.bar_pct }}%"></div></div>
-    <div class="gc-traf">已用 {{ g.used_str }}</div>
-    <div class="gc-inout">
-      <span style="color:var(--cyan)">▼入 {{ g.in_str }}</span>
-      <span style="color:var(--gold);margin-left:8px">▲出 {{ g.out_str }}</span>
-    </div>
-    <div class="gc-status">
-      {% if g.online > 0 %}<span class="dot dot-on"></span>{{ g.online }} 在线 {% endif %}
-      {% if g.offline > 0 %}<span class="dot dot-off"></span>{{ g.offline }} 离线 {% endif %}
-      {% if g.expired > 0 %}<span class="dot dot-exp"></span>{{ g.expired }} 过期 {% endif %}
-      {% if g.quotaExhausted > 0 %}<span style="color:var(--purple)">⚡{{ g.quotaExhausted }} 耗尽</span>{% endif %}
-    </div>
-  </a>
-{% endfor %}
+<!-- Toolbar -->
+{% if view == 'all' or group_filter %}
+<div class="toolbar">
+  <input type="text" placeholder="搜索名称/IP..." value="{{ q }}" oninput="search(this.value)" style="flex:1;min-width:180px">
+  <select onchange="filterStatus(this.value)">
+    <option value="all"{% if sf=='all'%} selected{% endif %}>全部状态</option>
+    <option value="online"{% if sf=='online'%} selected{% endif %}>在线</option>
+    <option value="offline"{% if sf=='offline'%} selected{% endif %}>离线</option>
+    <option value="expired"{% if sf=='expired'%} selected{% endif %}>已过期</option>
+    <option value="quota"{% if sf=='quota'%} selected{% endif %}>已达配额</option>
+  </select>
+  <button class="btn btn-ghost btn-sm" onclick="checkAll()" id="checkAllBtn">一键检测</button>
 </div>
 {% endif %}
 
-<div class="ft">v14 · 流量超额/到期自动断连</div>
-
-{# Add Modal #}
-<div id="addModal" class="modal">
-  <div class="modal-card">
-    <h3 style="margin:0 0 10px">新建转发规则</h3>
-    <div style="font-size:.75rem;color:var(--text2);margin-bottom:10px">名称前缀自动归组：美区/香港/泰国/马来/日区</div>
-    <form method="post" action="/add">
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-        <div><label style="font-size:.75rem;color:var(--text2);display:block;margin-bottom:3px">名称</label><input name="name" placeholder="香港-01" required style="width:100%;padding:8px;border-radius:6px;border:1px solid var(--border);background:rgba(0,0,0,0.4);color:var(--text);font-size:.85rem"></div>
-        <div><label style="font-size:.75rem;color:var(--text2);display:block;margin-bottom:3px">本地端口</label><input name="local" placeholder="留空自动分配" style="width:100%;padding:8px;border-radius:6px;border:1px solid var(--border);background:rgba(0,0,0,0.4);color:var(--text);font-size:.85rem"></div>
-        <div><label style="font-size:.75rem;color:var(--text2);display:block;margin-bottom:3px">目标IP</label><input name="ip" placeholder="1.2.3.4" required style="width:100%;padding:8px;border-radius:6px;border:1px solid var(--border);background:rgba(0,0,0,0.4);color:var(--text);font-size:.85rem"></div>
-        <div><label style="font-size:.75rem;color:var(--text2);display:block;margin-bottom:3px">目标端口</label><input name="port" placeholder="443" required style="width:100%;padding:8px;border-radius:6px;border:1px solid var(--border);background:rgba(0,0,0,0.4);color:var(--text);font-size:.85rem"></div>
-        <div><label style="font-size:.75rem;color:var(--text2);display:block;margin-bottom:3px">配额(GB)</label><input name="quota" value="10" step="0.5" min="0" style="width:100%;padding:8px;border-radius:6px;border:1px solid var(--border);background:rgba(0,0,0,0.4);color:var(--text);font-size:.85rem"></div>
-        <div><label style="font-size:.75rem;color:var(--text2);display:block;margin-bottom:3px">过期时间</label><input type="datetime-local" name="expire" style="width:100%;padding:8px;border-radius:6px;border:1px solid var(--border);background:rgba(0,0,0,0.4);color:var(--text);font-size:.85rem;color-scheme:dark"></div>
-        <div style="grid-column:1/-1"><label style="font-size:.75rem;color:var(--text2);display:block;margin-bottom:3px">自定义分组（留空自动识别）</label><input name="group_name" placeholder="例如: 张三专用" style="width:100%;padding:8px;border-radius:6px;border:1px solid var(--border);background:rgba(0,0,0,0.4);color:var(--text);font-size:.85rem"></div>
-        <div style="grid-column:1/-1"><label style="font-size:.75rem;color:var(--text2);display:block;margin-bottom:3px">备注</label><input name="note" placeholder="例如: 高峰期备用" style="width:100%;padding:8px;border-radius:6px;border:1px solid var(--border);background:rgba(0,0,0,0.4);color:var(--text);font-size:.85rem"></div>
+{% if view == 'groups' %}
+  <!-- Groups View -->
+  <div class="grid">
+  {% for g in sorted_groups %}
+    <a href="/?group={{ g.name | urlencode }}" class="grid-item">
+      <div class="grid-name">{{ g.name }}</div>
+      <div class="grid-count">{{ g.count }} 条规则</div>
+      <div class="grid-bar"><div class="grid-fill" style="width:{{ g.bar_pct }}%"></div></div>
+      <div class="grid-traffic">
+        <span>▼ {{ g.in_str }}</span>
+        <span>▲ {{ g.out_str }}</span>
       </div>
-      <div style="display:flex;gap:8px;margin-top:14px">
-        <button class="btn btn-pri" type="submit" style="flex:1">添加</button>
-        <a href="javascript:void(0)" class="btn btn-gho" style="flex:1;text-align:center" onclick="closeModal()">取消</a>
+      <div class="grid-status">
+        {% if g.online %}<span><span class="dot dot-on"></span> {{ g.online }} 在线</span>{% endif %}
+        {% if g.offline %}<span><span class="dot dot-off"></span> {{ g.offline }} 离线</span>{% endif %}
+        {% if g.expired %}<span><span class="dot dot-exp"></span> {{ g.expired }} 过期</span>{% endif %}
+        {% if g.quotaExhausted %}<span style="color:#a78bfa">⚡ {{ g.quotaExhausted }} 达配额</span>{% endif %}
+      </div>
+    </a>
+  {% endfor %}
+  </div>
+{% else %}
+  <!-- Node List -->
+  <div class="nlist" id="nodeList">
+  {% for item in filtered %}
+    <div class="node" data-idx="{{ item._idx }}">
+      <div class="node-info">
+        <div class="node-name">
+          {{ item.name }}
+          {% if item.note %}<span style="font-size:11px;color:var(--text3);font-weight:400">· {{ item.note }}</span>{% endif %}
+          {% if item.group_name %}<span class="grp-tag">{{ item.group_name }}</span>{% endif %}
+        </div>
+        <div class="node-route">{{ item.local }} → {{ item.ip }}:{{ item.port }}</div>
+        <div class="node-meta">
+          <span>▼入 {{ item.used_in_display }} / ▲出 {{ item.used_out_display }}</span>
+          <span>配额 {{ item.quota }} GB · 已用 <span class="pb"><span class="pf" style="width:{{ (item.used / (item.quota * 1024) * 100)|round(1) if item.quota > 0 else 0 }}%"></span></span></span>
+          {% if item.expire_time_display %}<span>到期 {{ item.expire_time_display }}</span>{% endif %}
+        </div>
+      </div>
+      <div class="node-actions">
+        {% if item.expired %}
+          <span class="bdg bdg-exp">已过期</span>
+        {% elif item.quota > 0 and item.used >= item.quota * 1024 %}
+          <span class="bdg bdg-quota">已达配额</span>
+        {% elif item.online %}
+          <span class="bdg bdg-on"><span class="dot dot-on" style="width:5px;height:5px"></span> 在线</span>
+        {% else %}
+          <span class="bdg bdg-off"><span class="dot dot-off" style="width:5px;height:5px"></span> 离线</span>
+        {% endif %}
+        <button class="btn btn-ghost btn-xs" onclick="checkOne(this)" data-idx="{{ item._idx }}">检测</button>
+        <button class="btn btn-ghost btn-xs cr" data-idx="{{ item._idx }}" style="min-width:40px;color:var(--text3);font-size:11px"></button>
+        <a href="/edit/{{ item._idx }}" class="btn btn-ghost btn-xs">编辑</a>
+        <button class="btn btn-ghost btn-xs" onclick="toggleNode('{{ item.local }}', this)" title="开关">
+          {{ '⏹' if item.enable else '▶' }}
+        </button>
+        <button class="btn btn-danger btn-xs" onclick="deleteNode({{ item._idx }}, this)">删除</button>
+      </div>
+    </div>
+  {% else %}
+    <div style="text-align:center;padding:40px;color:var(--text2)">暂无匹配的节点</div>
+  {% endfor %}
+  </div>
+{% endif %}
+
+<div class="footer">v14 · 流量超额/到期自动断连</div>
+</div>
+
+<!-- Add Modal -->
+<div class="modal-bg" id="addModal">
+  <div class="modal-box">
+    <h3>新建转发规则</h3>
+    <form method="post" action="/add">
+      <label>备注名称</label><input name="name" placeholder="例如: 香港节点1" required>
+      <label>本地端口（留空自动分配）</label><input name="local" placeholder="自动" style="width:120px">
+      <label>目标 IP</label><input name="ip" placeholder="1.2.3.4" required>
+      <label>目标端口</label><input name="port" placeholder="443" required>
+      <label>过期时间</label><input type="datetime-local" name="expire" style="color-scheme:dark;width:200px">
+      <label>流量配额 (GB，0=不限量)</label><input name="quota" value="10" step="0.5" min="0" style="width:100px">
+      <label>自定义分组</label><input name="group_name" placeholder="留空自动识别">
+      <label>备注</label><input name="note" placeholder="节点备注信息">
+      <div style="display:flex;gap:10px;margin-top:20px">
+        <button class="btn btn-primary" type="submit" style="flex:1">添加</button>
+        <button class="btn btn-ghost" type="button" style="flex:1;text-align:center" onclick="closeModal()">取消</button>
       </div>
     </form>
-    <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
-      <span onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display=='none'?'':'none'" class="btn btn-gho btn-sm" style="cursor:pointer;width:100%;text-align:center;display:block">批量导入</span>
+    <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border)">
+      <span onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display=='none'?'':'none'" class="btn btn-ghost btn-sm" style="cursor:pointer;width:100%;text-align:center;display:block">+ 批量导入</span>
       <div style="display:none;margin-top:8px">
         <form method="post" action="/batch_add">
-        <div style="font-size:.7rem;color:var(--text2);margin-bottom:4px">每行一条，格式: 名称:本地端口:目标IP:目标端口</div>
-        <textarea name="batch_data" rows="3" style="width:100%;padding:8px;border-radius:6px;border:1px solid var(--border);background:rgba(0,0,0,0.4);color:var(--text);font-size:.75rem;font-family:monospace;outline:none;resize:vertical" placeholder="香港1:35957:1.2.3.4:443"></textarea>
-        <button class="btn btn-pri btn-sm" type="submit" style="margin-top:6px">导入</button>
+          <div style="font-size:11px;color:var(--text2);margin-bottom:4px">每行一条，格式: 名称:本地端口:目标IP:目标端口</div>
+          <textarea name="batch_data" rows="3" style="width:100%;padding:8px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--card2);color:var(--text);font-size:12px;font-family:monospace;outline:none;resize:vertical" placeholder="香港1:35957:1.2.3.4:443"></textarea>
+          <button class="btn btn-primary btn-sm" type="submit" style="margin-top:6px">导入</button>
         </form>
       </div>
     </div>
   </div>
 </div>
-</div>
-<div class="vanta-bg" id="vantaBg"></div>
-<style>
-.vanta-bg{position:fixed;top:0;left:0;width:100%;height:100%;z-index:0;pointer-events:none}
-</style>
-
 
 <script>
+function showModal(){document.getElementById('addModal').classList.add('open')}
+function closeModal(){document.getElementById('addModal').classList.remove('open')}
+function closeModalBg(e){if(e.target===e.currentTarget)closeModal()}
+document.getElementById('addModal').addEventListener('click',closeModalBg)
+
 function checkOne(btn){
   var idx=btn.getAttribute('data-idx'),orig=btn.innerHTML;
   btn.disabled=true;btn.innerHTML='检测中...';
-  fetch('/check/'+idx).then(function(r){return r.json();}).then(function(d){
-    if(d.ok){btn.innerHTML='\u2705 '+d.ms+'ms';btn.style.color='#00ff88';}
-    else{btn.innerHTML='\u274c \u8d85\u65f6';btn.style.color='#ff2255';btn.title=d.error||'';}
-    setTimeout(function(){btn.innerHTML=orig;btn.style.color='';btn.disabled=false;},5000);
-  }).catch(function(){btn.innerHTML='\u274c \u5931\u8d25';setTimeout(function(){btn.innerHTML=orig;btn.disabled=false;},3000);});
-}
-function checkAll(){
-  var btn=document.getElementById('checkAllBtn')||document.getElementById('checkAllBtn2');
-  if(!btn)return;
-  btn.disabled=true;btn.textContent='\u68c0\u6d4b\u4e2d...';
-  var crs=document.querySelectorAll('.cr');
-  crs.forEach(function(e){e.textContent='...';e.style.color='#8899bb';});
-  fetch('/check_all').then(function(r){return r.json();}).then(function(d){
-    if(!d.ok){btn.textContent='\u5931\u8d25';btn.disabled=false;return;}
-    var r=d.results,ok=0,fail=0;
-    crs.forEach(function(e){
-      var idx=e.getAttribute('data-idx'),rr=r&&r[idx];
-      if(!rr)return;
-      if(rr.ok){e.textContent='OK '+rr.ms+'ms';e.style.color='#00ff88';ok++;}
-      else{e.textContent='FAIL';e.style.color='#ff2255';e.title=rr.error||'';fail++;}
-    });
-    btn.textContent='\u91cd\u6d4b('+ok+'/'+fail+')';btn.disabled=false;
-  }).catch(function(){btn.textContent='Err';btn.disabled=false;});
-}
-function showModal(){document.getElementById('addModal').style.display='flex';}
-function closeModal(){document.getElementById('addModal').style.display='none';}
-function deleteNode(idx,el){
-  if(!confirm('\u786e\u5b9a\u5220\u9664\u8be5\u8282\u70b9\uff1f'))return;
-  var nd=el.closest('.nd');
-  fetch('/del/'+idx).then(function(r){return r.json();}).then(function(d){
-    if(d.ok&&nd)nd.remove();
-  }).catch(function(){});
+  fetch('/check/'+idx).then(function(r){return r.json()}).then(function(d){
+    if(d.ok){btn.innerHTML='\u2705 '+d.ms+'ms';btn.style.color='#22c55e'}
+    else{btn.innerHTML='\u274c 超时';btn.style.color='#ef4444';btn.title=d.error||''}
+    setTimeout(function(){btn.innerHTML=orig;btn.style.color='';btn.disabled=false},5000)
+  }).catch(function(){btn.innerHTML='\u274c 失败';setTimeout(function(){btn.innerHTML=orig;btn.disabled=false},3000)})
 }
 
-(function(){
-  function initVanta(){
-    try{
-      if(typeof THREE==='undefined'||typeof VANTA==='undefined'){setTimeout(initVanta,500);return;}
-      VANTA.WAVES({el:"#vantaBg",color:0x2a6f8f,color2:0x3a8faf,waveHeight:25,shininess:40,zoom:0.8});
-      
-    }catch(e){console.warn('Vanta:',e.message);}
-  }
-  if(document.readyState==='complete') initVanta();
-  else window.addEventListener('load',initVanta);
-})();
+function checkAll(){
+  var btn=document.getElementById('checkAllBtn');if(!btn)return
+  btn.disabled=true;btn.textContent='检测中...'
+  var crs=document.querySelectorAll('.cr');
+  crs.forEach(function(e){e.textContent='...';e.style.color='#64748b'})
+  fetch('/check_all').then(function(r){return r.json()}).then(function(d){
+    if(!d.ok){btn.textContent='失败';btn.disabled=false;return}
+    var r=d.results,ok=0,fail=0
+    crs.forEach(function(e){
+      var idx=e.getAttribute('data-idx'),rr=r&&r[idx]
+      if(!rr)return
+      if(rr.ok){e.textContent='OK '+rr.ms+'ms';e.style.color='#22c55e';ok++}
+      else{e.textContent='FAIL';e.style.color='#ef4444';e.title=rr.error||'';fail++}
+    })
+    btn.textContent='重测('+ok+'/'+fail+')';btn.disabled=false
+  }).catch(function(){btn.textContent='Err';btn.disabled=false})
+}
+
+function deleteNode(idx,el){
+  if(!confirm('确定删除该节点？'))return
+  var nd=el.closest('.node')
+  fetch('/del/'+idx).then(function(r){return r.json()}).then(function(d){
+    if(d.ok&&nd)nd.remove()
+  }).catch(function(){})
+}
+
+function toggleNode(local,btn){
+  fetch('/api/toggle/'+local,{method:'POST'}).then(function(r){return r.json()}).then(function(d){
+    if(d.ok)btn.textContent=d.enable?'\u23F9':'\u25B6'
+  }).catch(function(){})
+}
+
+function search(val){window.location.href='/?view=all&q='+encodeURIComponent(val)}
+function filterStatus(val){window.location.href='/?view=all&status='+val+'&q={{ q }}'}
 </script>
-</body></html>
+</body>
+</html>

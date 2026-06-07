@@ -1,59 +1,63 @@
 <!DOCTYPE html>
 <html lang="zh">
-<head><meta charset="UTF-8"><title>操作日志</title>
+<head><meta charset="UTF-8"><title>操作日志 — TCP 转发管理</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
-body{background:#0a0e1a;color:#d0daf0;font:15px/1.5 system-ui,sans-serif;padding:20px;min-height:100vh}
-body::before{content:'';position:fixed;top:0;left:0;right:0;bottom:0;
-  background-image:linear-gradient(rgba(0,229,255,.04) 1px,transparent 1px),
-                   linear-gradient(90deg,rgba(0,229,255,.04) 1px,transparent 1px);
-  background-size:40px 40px;pointer-events:none;z-index:0}
-.container{max-width:1000px;margin:0 auto;position:relative;z-index:1}
-.content-box{background:rgba(10,14,26,.85);backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,.05);border-radius:16px;padding:20px}
-.hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px}
-.hdr h1{font-size:1.3rem;font-weight:800}.hdr h1 span{color:var(--cyan)}
-a{color:#00e5ff;text-decoration:none;font-size:.85rem}
-table{width:100%;border-collapse:collapse;font-size:.82rem}
-th{background:rgba(255,255,255,.05);color:#8899bb;padding:10px;text-align:left;font-weight:600;border-bottom:1px solid rgba(255,255,255,.08)}
-td{padding:8px 10px;border-bottom:1px solid rgba(255,255,255,.04)}
-tr:hover{background:rgba(0,229,255,.03)}
-.tag{display:inline-block;padding:2px 6px;border-radius:3px;font-size:.7rem;border:1px solid}
-.tag-add{border-color:rgba(0,255,136,.3);color:#0f8}
-.tag-del{border-color:rgba(255,34,85,.3);color:#f25}
-.tag-edit{border-color:rgba(0,229,255,.3);color:#0ef}
-.tag-reset{border-color:rgba(255,187,0,.3);color:#fb0}
-.ft{text-align:center;font-size:.72rem;color:#8899bb;margin-top:20px;opacity:.4}
-</style><script defer src="/static/three.min.js"></script>
-<script defer src="/static/vanta.waves.min.js"></script>
-</head><body><div class="container"><div class="content-box">
-<div class="hdr">
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#070b14;color:#e2e8f0;font:14px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;padding:0;min-height:100vh}
+.topbar{background:#0d1225;border-bottom:1px solid #1e293b;padding:0 28px;height:56px;display:flex;align-items:center;justify-content:space-between}
+.brand{display:flex;align-items:center;gap:12px}
+.brand-icon{width:32px;height:32px;border-radius:8px;background:linear-gradient(135deg,#3b82f6,#6366f1);display:flex;align-items:center;justify-content:center;font-size:16px;color:#fff;font-weight:700}
+.brand-text{font-size:15px;font-weight:600;letter-spacing:.3px}
+a{color:#3b82f6;text-decoration:none;font-size:13px}
+.container{max-width:1000px;margin:0 auto;padding:28px}
+.card{background:#0d1225;border:1px solid #1e293b;border-radius:10px;padding:20px}
+h1{font-size:16px;font-weight:600;margin-bottom:16px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{background:rgba(255,255,255,.03);color:#64748b;padding:10px 12px;text-align:left;font-weight:600;border-bottom:1px solid #1e293b}
+td{padding:8px 12px;border-bottom:1px solid rgba(255,255,255,.03)}
+tr:hover{background:rgba(59,130,246,.03)}
+.tag{display:inline-block;padding:2px 6px;border-radius:3px;font-size:11px;font-weight:500}
+.tag-add{color:#22c55e;background:rgba(34,197,94,.1)}
+.tag-del{color:#ef4444;background:rgba(239,68,68,.1)}
+.tag-edit{color:#3b82f6;background:rgba(59,130,246,.1)}
+.tag-reset{color:#eab308;background:rgba(234,179,8,.1)}
+.pages{text-align:center;margin-top:16px;font-size:13px;color:#64748b}
+.pages a{margin:0 8px}
+.ft{text-align:center;font-size:11px;color:#475569;margin-top:30px}
+</style>
+</head><body>
+<div class="topbar">
+  <a href="/" style="text-decoration:none;color:inherit">
+    <div class="brand">
+      <div class="brand-icon">⛭</div>
+      <div class="brand-text">TCP 转发管理</div>
+    </div>
+  </a>
+  <a href="/">← 返回面板</a>
+</div>
+<div class="container">
+  <div class="card">
   <h1>操作日志</h1>
-  <a href="/">返回面板</a>
+  <table>
+  <tr><th>时间</th><th>类型</th><th>节点</th><th>内容</th></tr>
+  {% for e in events %}
+  <tr>
+    <td style="color:#64748b;white-space:nowrap">{{ e.time }}</td>
+    <td><span class="tag tag-{{ e.event_type }}">{{ e.event_type }}</span></td>
+    <td>{{ e.name }}</td>
+    <td style="color:#64748b">{{ e.message }}</td>
+  </tr>
+  {% else %}
+  <tr><td colspan="4" style="text-align:center;padding:40px;color:#64748b">暂无操作记录</td></tr>
+  {% endfor %}
+  </table>
+  <div class="pages">
+    {% if page > 1 %}<a href="/events?page={{ page-1 }}">上一页</a>{% endif %}
+    <span>第 {{ page }} 页</span>
+    {% if events|length == limit %}<a href="/events?page={{ page+1 }}">下一页</a>{% endif %}
+  </div>
+  </div>
+  <div class="ft">v14</div>
 </div>
-<table>
-<tr><th>时间</th><th>类型</th><th>节点</th><th>内容</th></tr>
-{% for e in events %}
-<tr>
-  <td style="color:#8899bb;white-space:nowrap">{{ e.time }}</td>
-  <td><span class="tag tag-{{ e.event_type }}">{{ e.event_type }}</span></td>
-  <td>{{ e.name }}</td>
-  <td style="color:#8899bb">{{ e.message }}</td>
-</tr>
-{% else %}
-<tr><td colspan="4" style="text-align:center;padding:30px;color:#8899bb">暂无操作记录</td></tr>
-{% endfor %}
-</table>
-{% if page > 1 %}
-<div style="margin-top:16px;text-align:center">
-  <a href="/events?page={{ page-1 }}">上一页</a>
-  <span style="margin:0 12px;color:#8899bb">第 {{ page }} 页</span>
-  {% if events|length == limit %}<a href="/events?page={{ page+1 }}">下一页</a>{% endif %}
-</div>
-{% else %}
-<div style="margin-top:16px;text-align:center;color:#8899bb">
-  第 {{ page }} 页
-  {% if events|length == limit %}<a href="/events?page={{ page+1 }}" style="margin-left:12px">下一页</a>{% endif %}
-</div>
-{% endif %}
-<div class="ft">v14 测试版</div>
-</div></div></body></html>
+</body></html>

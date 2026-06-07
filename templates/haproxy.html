@@ -1,52 +1,90 @@
 <!DOCTYPE html>
-<html><head><meta charset=utf-8><title>连接状态</title>
+<html lang="zh">
+<head><meta charset="UTF-8"><title>连接状态 — TCP 转发管理</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
-body{background:#0f172a;color:#f1f5f9;font-family:system-ui;padding:20px}
-h2{color:#d0daf0;font-weight:400;margin-bottom:16px}
-table{border-collapse:collapse;width:100%;font-size:13px}
-th{background:rgba(255,255,255,0.05);color:#94a3b8;padding:8px 10px;text-align:left;font-weight:600}
-td{padding:6px 10px;border-bottom:1px solid rgba(255,255,255,0.04)}
-td[data-port]{cursor:pointer;text-decoration:underline}
-td[data-port]:hover{opacity:.8}
-a{color:var(--cyan)}
-</style><script defer src="/static/three.min.js"></script>
-<script defer src="/static/vanta.waves.min.js"></script>
-</head><body><h2>连接状态</h2>
-<a href="/" style="display:inline-block;margin-bottom:16px;font-size:13px">&larr; 返回面板</a>
-<table><tr><th>Status</th><th>节点</th><th>目标IP</th><th>连接数</th><th>入站</th><th>出站</th></tr>
-{% for s in stats %}
-{% set n = node_map.get(s.svname.lstrip('s')) %}
-<tr>
-  <td style="color:{% if s.status=='UP' %}#0f0{% elif s.status=='DOWN' %}#f22{% else %}#fb0{% endif %}">{{ s.status }}</td>
-  <td>{{ n.name if n else s.svname }}</td>
-  <td style="color:#8899bb">{{ n.ip if n else '' }}</td>
-  <td data-port="{{ s.svname.lstrip('s') }}">{{ s.scur or 0 }}</td>
-  <td>{{ s.bin or 0 }}</td>
-  <td>{{ s.bout or 0 }}</td>
-</tr>
-{% endfor %}
-</table>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#070b14;color:#e2e8f0;font:14px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;padding:0;min-height:100vh}
+.topbar{background:#0d1225;border-bottom:1px solid #1e293b;padding:0 28px;height:56px;display:flex;align-items:center;justify-content:space-between}
+.brand{display:flex;align-items:center;gap:12px}
+.brand-icon{width:32px;height:32px;border-radius:8px;background:linear-gradient(135deg,#3b82f6,#6366f1);display:flex;align-items:center;justify-content:center;font-size:16px;color:#fff;font-weight:700}
+.brand-text{font-size:15px;font-weight:600;letter-spacing:.3px}
+a{color:#3b82f6;text-decoration:none;font-size:13px}
+.container{max-width:1200px;margin:0 auto;padding:28px}
+.card{background:#0d1225;border:1px solid #1e293b;border-radius:10px;padding:20px}
+.card-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px}
+.card-header h1{font-size:16px;font-weight:600}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{background:rgba(255,255,255,.03);color:#64748b;padding:10px 12px;text-align:left;font-weight:600;border-bottom:1px solid #1e293b}
+td{padding:8px 12px;border-bottom:1px solid rgba(255,255,255,.03)}
+tr:hover{background:rgba(59,130,246,.03)}
+.dot{display:inline-block;width:6px;height:6px;border-radius:50%;vertical-align:middle}
+.dot-up{background:#22c55e}
+.dot-down{background:#ef4444}
+.btn-xs{padding:2px 8px;border-radius:4px;font-size:11px;border:1px solid #1e293b;cursor:pointer;background:transparent;color:#64748b;margin:2px}
+.btn-xs:hover{color:#e2e8f0;border-color:#64748b}
+.ft{text-align:center;font-size:11px;color:#475569;margin-top:30px}
+</style>
+<script defer src="/static/echarts.min.js"></script>
+</head><body>
+<div class="topbar">
+  <a href="/" style="text-decoration:none;color:inherit">
+    <div class="brand">
+      <div class="brand-icon">⛭</div>
+      <div class="brand-text">TCP 转发管理</div>
+    </div>
+  </a>
+  <a href="/">← 返回面板</a>
+</div>
+<div class="container">
+  <div class="card">
+  <div class="card-header">
+    <h1>HAProxy 连接状态</h1>
+    <button class="btn-xs" onclick="location.reload()">刷新</button>
+  </div>
+  <table>
+  <tr>
+    <th>节点</th><th>状态</th><th>当前连接</th><th>累计连接</th><th>入站 (bin)</th><th>出站 (bout)</th><th>健康检查</th><th>操作</th>
+  </tr>
+  {% set ns = namespace(online=0, total=0) %}
+  {% for s in stats %}
+  {% set node = node_map.get(s.pxname[3:] if s.pxname.startswith('be_') else '', {}) %}
+  {% if s.status == 'UP' %}{% set ns.online = ns.online + 1 %}{% endif %}
+  {% set ns.total = ns.total + 1 %}
+  <tr>
+    <td>{{ node.get('name', s.svname) }}</td>
+    <td>{% if s.status == 'UP' %}<span class="dot dot-up"></span> 在线{% else %}<span class="dot dot-down"></span> 离线{% endif %}</td>
+    <td>{{ s.scur or 0 }}</td>
+    <td>{{ s.stot or 0 }}</td>
+    <td>{{ '%0.1f MB' | format((s.bin|int)/1048576) if s.bin and s.bin.isdigit() else '0 MB' }}</td>
+    <td>{{ '%0.1f MB' | format((s.bout|int)/1048576) if s.bout and s.bout.isdigit() else '0 MB' }}</td>
+    <td>{{ s.check_status or '-' }} · {{ s.check_duration or '-' }}ms</td>
+    <td><button class="btn-xs" onclick="showConns('{{ node.get('local', s.svname) }}')">连接</button></td>
+  </tr>
+  {% endfor %}
+  </table>
+  <div style="margin-top:12px;font-size:12px;color:#64748b">在线: {{ ns.online }} / {{ ns.total }} 节点</div>
+  </div>
+  <div class="ft">v14</div>
+</div>
 <script>
-document.addEventListener('click',function(e){
-  var td=e.target.closest('td[data-port]');
-  if(!td)return;
-  var p=td.getAttribute('data-port');
-  if(document.getElementById('c_'+p)){el.style.display=el.style.display==='none'?'':'none';return;}
-  var el=document.createElement('div');
-  el.id='c_'+p;el.style.cssText='padding:8px 12px;background:rgba(255,255,255,0.03);border-radius:6px;font-size:12px;color:#8899bb;margin:0 0 8px 24px';
-  el.innerHTML='<span style=color:#94a3b8>Loading...</span>';
-  td.closest('tr').parentNode.insertBefore(el,td.closest('tr').nextSibling);
-  fetch('/api/connections').then(function(r){return r.json();}).then(function(d){
-    if(!d.ok||!d.ports[p]){el.innerHTML='<span style=color:#94a3b8>No connections</span>';return;}
-    var ips={};
-    d.ports[p].forEach(function(x){var ip=x.remote.split(':')[0];if(x.state==='ESTABLISHED')ips[ip]=(ips[ip]||0)+1;});
-    var ks=Object.keys(ips);
-    if(!ks.length){el.innerHTML='<span style=color:#94a3b8>No established connections</span>';return;}
-    var h='<div style=color:#a0aec0;font-weight:600;margin-bottom:4px>客户端IP:</div>';
-    ks.sort().forEach(function(ip){h+='<div>'+ip+' <span style=color:#94a3b8>('+ips[ip]+'连接)</span></div>';});
-    el.innerHTML=h;
-  });
-});
+function showConns(port){
+  fetch('/api/connections').then(function(r){return r.json()}).then(function(d){
+    if(!d.ok||!d.ports||!d.ports[port]){alert('暂无连接数据');return}
+    var html='<div style="background:#111827;border:1px solid #1e293b;border-radius:8px;padding:16px;max-height:400px;overflow-y:auto">'+
+      '<div style="font-size:13px;font-weight:600;margin-bottom:10px">端口 '+port+' 连接</div>'+
+      '<div style="font-size:12px;color:#64748b">共 '+d.ports[port].length+' 个连接</div>';
+    d.ports[port].forEach(function(c){
+      html+='<div style="padding:6px 0;border-bottom:1px solid rgba(255,255,255,.04);font-size:12px;color:#94a3b8;font-family:monospace">'+c+'</div>';
+    });
+    html+='</div>';
+    var m=document.createElement('div');
+    m.style.cssText='position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center';
+    m.innerHTML='<div style="background:#0d1225;border:1px solid #1e293b;border-radius:12px;padding:24px;width:90%;max-width:500px;max-height:80vh;overflow-y:auto">'+
+      html+'<button onclick="this.closest(\'div[style]\').remove()" style="margin-top:12px;padding:6px 16px;border-radius:6px;border:1px solid #1e293b;background:transparent;color:#64748b;cursor:pointer">关闭</button></div>';
+    m.addEventListener('click',function(e){if(e.target===this)this.remove()});
+    document.body.appendChild(m);
+  }).catch(function(){alert('获取连接数据失败')});
+}
 </script>
 </body></html>
