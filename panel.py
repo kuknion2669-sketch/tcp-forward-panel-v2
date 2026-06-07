@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""TCP Forward Panel v2 — modular architecture"""
+"""TCP Forward Panel V2 正式版 1.0 — modular architecture"""
 # v2 design principles:
 # 1. Zero CDN dependency (loads in China without issues)
 # 2. Module split (not 1700 lines single file)
