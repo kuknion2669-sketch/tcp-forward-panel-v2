@@ -75,7 +75,7 @@ function showConns(port){
       '<div style="font-size:13px;font-weight:600;margin-bottom:10px">端口 '+port+' 连接</div>'+
       '<div style="font-size:12px;color:#64748b">共 '+d.ports[port].length+' 个连接</div>';
     d.ports[port].forEach(function(c){
-      html+='<div style="padding:6px 0;border-bottom:1px solid rgba(255,255,255,.04);font-size:12px;color:#94a3b8;font-family:monospace">'+c+'</div>';
+      html+='<div style="padding:6px 0;border-bottom:1px solid rgba(255,255,255,.04);font-size:12px;color:#94a3b8;font-family:monospace">'+c.remote+' <span style="color:#64748b">'+c.state+'</span></div>';
     });
     html+='</div>';
     var m=document.createElement('div');
