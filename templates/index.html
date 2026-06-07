@@ -526,9 +526,6 @@ function toggleSwitch(el){
       lbl.textContent='停用';lbl.style.color='#64748b'
     }
   })
-}).then(function(r){return r.json()}).then(function(d){
-    if(d.ok)btn.textContent=d.enable?'\u23F9':'\u25B6'
-  }).catch(function(){})
 }
 
 function search(val){window.location.href='/?view=all&q='+encodeURIComponent(val)}
