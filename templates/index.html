@@ -351,11 +351,12 @@ body{background:var(--bg);color:var(--text);font:14px/1.6 -apple-system,BlinkMac
         {% endif %}
         <button class="btn btn-ghost btn-xs" onclick="checkOne(this)" data-idx="{{ item._idx }}">检测</button>
         <button class="btn btn-ghost btn-xs" onclick="editNode({{ item._idx }})">编辑</button>
-        <label class="toggle-sw" title="点击切换启用/停用">
-          <input type="checkbox" {% if item.enable %}checked{% endif %} onchange="toggleSwitch('{{ item.local }}', this)">
-          <span class="toggle-track"></span>
-          <span class="toggle-lbl">{% if item.enable %}启用{% else %}停用{% endif %}</span>
-        </label>
+        <div class="toggle-btn" data-local="{{ item.local }}" data-enable="{{ 1 if item.enable else 0 }}" onclick="toggleSwitch(this)" style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;user-select:none">
+          <span class="toggle-track" style="width:36px;height:20px;border-radius:10px;background:{% if item.enable %}rgba(59,130,246,.2){% else %}#1e293b{% endif %};border:1px solid {% if item.enable %}rgba(59,130,246,.4){% else %}#334155{% endif %};position:relative;transition:all .2s;flex-shrink:0;display:inline-block">
+            <span style="position:absolute;top:2px;{% if item.enable %}left:18px;background:#3b82f6{% else %}left:2px;background:#64748b{% endif %};width:14px;height:14px;border-radius:50%;transition:all .2s;display:block"></span>
+          </span>
+          <span class="toggle-lbl" style="font-size:11px;color:{% if item.enable %}#3b82f6{% else %}#64748b{% endif %};min-width:2em">{% if item.enable %}启用{% else %}停用{% endif %}</span>
+        </div>
         <button class="btn btn-danger btn-xs" onclick="deleteNode({{ item._idx }}, this)" style="margin-left:12px">删除</button>
       </div>
     </div>
@@ -506,13 +507,25 @@ function deleteNode(idx,el){
   }).catch(function(){})
 }
 
-function toggleSwitch(local,cb){
-  var lbl=cb.parentNode.querySelector('.toggle-lbl')
+function toggleSwitch(el){
+  var local=el.getAttribute('data-local')
+  var enable=el.getAttribute('data-enable')==='1'
   fetch('/api/toggle/'+local,{method:'POST'}).then(function(r){return r.json()}).then(function(d){
-    if(!d.ok){cb.checked=!cb.checked;return}
-    cb.checked=d.enable
-    lbl.textContent=d.enable?'启用':'停用'
-  }).catch(function(){cb.checked=!cb.checked})
+    if(!d.ok)return
+    el.setAttribute('data-enable',d.enable?'1':'0')
+    var dot=el.querySelector('.toggle-track span')
+    var track=el.querySelector('.toggle-track')
+    var lbl=el.querySelector('.toggle-lbl')
+    if(d.enable){
+      track.style.background='rgba(59,130,246,.2)';track.style.borderColor='rgba(59,130,246,.4)'
+      dot.style.left='18px';dot.style.background='#3b82f6'
+      lbl.textContent='启用';lbl.style.color='#3b82f6'
+    }else{
+      track.style.background='#1e293b';track.style.borderColor='#334155'
+      dot.style.left='2px';dot.style.background='#64748b'
+      lbl.textContent='停用';lbl.style.color='#64748b'
+    }
+  })
 }).then(function(r){return r.json()}).then(function(d){
     if(d.ok)btn.textContent=d.enable?'\u23F9':'\u25B6'
   }).catch(function(){})
