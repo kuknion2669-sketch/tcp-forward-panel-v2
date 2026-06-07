@@ -365,13 +365,16 @@ body{background:var(--bg);color:var(--text);font:14px/1.6 -apple-system,BlinkMac
       <label>自定义分组</label><input name="group_name" id="edit_group" placeholder="留空自动识别">
       <label>备注</label><input name="note" id="edit_note" placeholder="备注信息">
       <div style="display:flex;gap:10px;margin-top:20px">
-        <button class="btn btn-primary" type="submit" style="flex:1">保存修改</button>
+        <button class="btn btn-primary" type="submit" id="editSaveBtn" style="flex:1">保存修改</button>
         <button class="btn btn-ghost" type="button" style="flex:1;text-align:center" onclick="closeModal()">取消</button>
       </div>
     </form>
   </div>
 </div>
 
+<script>
+function disableAddBtn(f){var b=f.querySelector('[type=submit]');if(b.disabled)return false;b.disabled=true;b.textContent='添加中...';return true}
+</script>
 <div class="footer">v14 · 流量超额/到期自动断连</div>
 </div>
 
@@ -379,7 +382,7 @@ body{background:var(--bg);color:var(--text);font:14px/1.6 -apple-system,BlinkMac
 <div class="modal-bg" id="addModal">
   <div class="modal-box">
     <h3>新建转发规则</h3>
-    <form method="post" action="/add">
+    <form method="post" action="/add" onsubmit="return disableAddBtn(this)">
       <label>备注名称</label><input name="name" placeholder="例如: 香港节点1" required>
       <label>本地端口（留空自动分配）</label><input name="local" placeholder="自动" style="width:120px">
       <label>目标 IP</label><input name="ip" placeholder="1.2.3.4" required>
@@ -389,7 +392,7 @@ body{background:var(--bg);color:var(--text);font:14px/1.6 -apple-system,BlinkMac
       <label>自定义分组</label><input name="group_name" placeholder="留空自动识别">
       <label>备注</label><input name="note" placeholder="节点备注信息">
       <div style="display:flex;gap:10px;margin-top:20px">
-        <button class="btn btn-primary" type="submit" style="flex:1">添加</button>
+        <button class="btn btn-primary" type="submit" id="addSaveBtn" style="flex:1">添加</button>
         <button class="btn btn-ghost" type="button" style="flex:1;text-align:center" onclick="closeModal()">取消</button>
       </div>
     </form>
@@ -437,12 +440,16 @@ function editNode(idx){
 
 function submitEdit(e){
   e.preventDefault()
+  var btn=document.getElementById('editSaveBtn')
+  if(btn.disabled)return false
+  var orig=btn.textContent
+  btn.disabled=true;btn.textContent='保存中...'
   var idx=document.getElementById('edit_idx').value
   var form=document.getElementById('editForm')
   var data=new FormData(form)
   fetch('/edit/'+idx,{method:'POST',body:data}).then(function(r){
     if(r.redirected)window.location.reload()
-    else closeModal()
+    else{btn.disabled=false;btn.textContent=orig;closeModal()}
   }).catch(function(){window.location.reload()})
   return false
 }
