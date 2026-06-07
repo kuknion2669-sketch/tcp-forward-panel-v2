@@ -303,8 +303,11 @@ def edit(idx):
                 return redirect(request.referrer or '/')
         ne = request.form.get('expire', '').strip()
         expire = haproxy.parse_expire(ne)
+        new_note = request.form.get('note', '').strip()
+        new_group = request.form.get('group_name', '').strip()
         old.update({'name': new_name, 'local': new_local, 'ip': new_ip,
-                    'port': new_port, 'expire': expire, 'quota': new_q})
+                    'port': new_port, 'expire': expire, 'quota': new_q,
+                    'note': new_note, 'group_name': new_group})
         db.save(data)
         haproxy.reload(data)
         log.info(f"Edited rule #{idx}: {new_name}")
