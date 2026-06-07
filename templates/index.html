@@ -407,7 +407,7 @@ body{background:var(--bg);color:var(--text);font:14px/1.6 -apple-system,BlinkMac
 </div>
 
 <script>
-var nodeData = {{ filtered | tojson }};
+var nodeData = {{ all_nodes | tojson }};
 function showModal(){document.getElementById('addModal').classList.add('open')}
 function closeModal(){
   document.getElementById('addModal').classList.remove('open')

@@ -169,6 +169,7 @@ def index():
         total_used=total_used_str,
         sorted_groups=sorted_groups,
         filtered=filtered,
+        all_nodes=enriched,
         view=view, group_filter=group_filter, q=q, sf=sf,
         history=history)
 
