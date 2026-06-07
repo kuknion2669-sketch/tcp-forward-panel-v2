@@ -43,22 +43,15 @@ TCP 端口转发管理面板 — 基于 HAProxy 的一站式转发节点管理�
 ## 一键安装
 
 **curl（推荐）：**
-\ash
-curl -sL https://raw.githubusercontent.com/kuknion2669-sketch/tcp-forward-panel-v2/main/install.sh | bash
-\\n
-**wget：**
-\ash
-wget -qO- https://raw.githubusercontent.com/kuknion2669-sketch/tcp-forward-panel-v2/main/install.sh | bash
-\\n
-自定义参数：
-
 ```bash
-# 改管理端口
-curl -sL https://raw.githubusercontent.com/... | PANEL_PORT=9090 bash
-
-# 改账号密码
-curl -sL https://raw.githubusercontent.com/... | ADMIN_USER=myadmin ADMIN_PASS=MyPass123 bash
+curl -sL https://raw.githubusercontent.com/kuknion2669-sketch/tcp-forward-panel-v2/main/install.sh | bash
 ```
+
+**wget：**
+```bash
+wget -qO- https://raw.githubusercontent.com/kuknion2669-sketch/tcp-forward-panel-v2/main/install.sh | bash
+```
+
 
 ## 手动部署
 
