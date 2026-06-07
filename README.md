@@ -1,4 +1,4 @@
-# TCP Forward Panel v14
+# TCP Forward Panel V2 正式版 1.0
 
 TCP 端口转发管理面板 — 基于 HAProxy 的一站式转发节点管理系统。
 
@@ -42,10 +42,14 @@ TCP 端口转发管理面板 — 基于 HAProxy 的一站式转发节点管理�
 
 ## 一键安装
 
-```bash
+**curl（推荐）：**
+\ash
 curl -sL https://raw.githubusercontent.com/kuknion2669-sketch/tcp-forward-panel-v2/main/install.sh | bash
-```
-
+\\n
+**wget：**
+\ash
+wget -qO- https://raw.githubusercontent.com/kuknion2669-sketch/tcp-forward-panel-v2/main/install.sh | bash
+\\n
 自定义参数：
 
 ```bash
