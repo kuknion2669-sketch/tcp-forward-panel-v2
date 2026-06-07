@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""TCP Forward Panel v14 — modular architecture"""
-# v14 design principles:
+"""TCP Forward Panel v2 — modular architecture"""
+# v2 design principles:
 # 1. Zero CDN dependency (loads in China without issues)
 # 2. Module split (not 1700 lines single file)
 # 3. Templates as separate files (not Python strings)
@@ -442,6 +442,6 @@ def events_page():
 
 if __name__ == '__main__':
     port = int(db.get_config().get('panel_port_v2', '8081'))
-    log.info(f"Starting panel v14 on port {port}")
-    print(f"Panel v14 starting on http://0.0.0.0:{port}")
+    log.info(f"Starting panel v2 on port {port}")
+    print(f"Panel v2 starting on http://0.0.0.0:{port}")
     app.run(host="0.0.0.0", port=port, debug=False)
