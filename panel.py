@@ -203,6 +203,7 @@ def add():
     db.save(data)
     haproxy.reload(data)
     log.info(f"Added rule: {name} ({local} -> {ip}:{port})")
+    db.log_event(local, name, "add", f"add: {local} -> {ip}:{port}")
     return redirect(request.referrer or '/')
 
 @app.route('/batch_add', methods=['POST'])
@@ -232,6 +233,7 @@ def batch_add():
     db.save(data)
     haproxy.reload(data)
     log.info(f"Batch added {len(rules)} rules")
+    db.log_event("", "", "batch_add", f"batch add: {len(new_rules)} rules")
     return redirect(request.referrer or '/')
 
 @app.route('/del/<int:idx>')
@@ -245,6 +247,7 @@ def delete(idx):
         db.save(data)
         haproxy.reload(data)
         log.info(f"Deleted rule #{idx}: {name}")
+    db.log_event(local, name, "delete", f"delete: {local}")
     return jsonify({'ok': ok})
 
 @app.route('/check/<int:idx>')
@@ -312,6 +315,7 @@ def edit(idx):
         db.save(data)
         haproxy.reload(data)
         log.info(f"Edited rule #{idx}: {new_name}")
+        db.log_event(local, new_name, "edit", f"edit: {local}")
         return redirect(request.referrer or '/')
     exp_dt = ''
     if item.get('expire'):
@@ -330,6 +334,7 @@ def reset_quota(idx):
         db.save(data)
         stats.clear_last(data[idx]['local'])
         log.info(f"Reset quota for #{idx}: {data[idx].get('name','')}")
+    db.log_event(local, data[idx].get("name",""), "reset_quota", f"reset_quota: {local}")
     return redirect(request.referrer or '/')
 
 @app.route('/restart/<local>')
@@ -364,6 +369,7 @@ def api_toggle(local):
                 s.sendall(cmd.encode())
                 s.close()
                 log.info(f"Toggle {local}: {'enabled' if enabled else 'disabled'} via socket")
+                db.log_event(local, d.get("name",""), "toggle", f"toggle: {local} {status}")
             except Exception as e:
                 log.warning(f"Socket toggle failed for {local}: {e}, falling back to reload")
                 haproxy.reload(data)
