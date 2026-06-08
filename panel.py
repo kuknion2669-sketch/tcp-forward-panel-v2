@@ -440,6 +440,74 @@ def events_page():
     events_list = db.get_events(limit=limit, offset=offset)
     return render_template('events.html', events=events_list, page=page, limit=limit)
 
+
+# === v3 API routes (no auth, for internal v3 panel on Reldens) ===
+@app.route("/api/v3/rules", methods=["GET"])
+def api_v3_rules():
+    return jsonify(db.load())
+
+@app.route("/api/v3/add", methods=["POST"])
+def api_v3_add():
+    body = request.get_json(force=True, silent=True)
+    if not body: return jsonify({"error": "json body required"}), 400
+    name = (body.get("name") or "").strip()
+    ip = (body.get("ip") or "").strip()
+    port = str(body.get("port") or "").strip()
+    if not name or not ip or not port: return jsonify({"error": "name, ip, port required"}), 400
+    local = str(body.get("local") or "").strip()
+    data = db.load()
+    if not local or not local.isdigit():
+        local = haproxy.free_port()
+    else:
+        existing = [d["local"] for d in data if d.get("local")]
+        if local in existing: local = haproxy.free_port()
+    expire = haproxy.parse_expire(body.get("expire", ""))
+    quota_raw = body.get("quota", "")
+    quota = 1.0 if quota_raw in ("", 0, "0") else float(quota_raw)
+    note = (body.get("note") or "") or ""
+    group = (body.get("group_name") or "") or ""
+    data.append({
+        "name": name, "local": local, "ip": ip, "port": port,
+        "expire": expire, "quota": quota, "used": 0, "enable": True,
+        "note": note, "group_name": group
+    })
+    db.save(data)
+    haproxy.reload(data)
+    db.log_event(local, name, "add", "v3 add: %s -> %s:%s" % (local, ip, port))
+    return jsonify({"status": "ok", "local": local})
+
+@app.route("/api/v3/del/<local>", methods=["POST"])
+def api_v3_del(local):
+    data = db.load()
+    idx = next((i for i, d in enumerate(data) if d.get("local") == local), None)
+    if idx is None: return jsonify({"error": "not found"}), 404
+    name = data[idx].get("name", "")
+    data.pop(idx)
+    db.save(data)
+    haproxy.reload(data)
+    db.log_event(local, name, "delete", "v3 delete: %s" % local)
+    return jsonify({"status": "ok"})
+
+@app.route("/api/v3/toggle/<local>", methods=["POST"])
+def api_v3_toggle(local):
+    data = db.load()
+    for d in data:
+        if d.get("local") == local:
+            d["enable"] = not d.get("enable", True)
+            db.save(data)
+            haproxy.reload(data)
+            status = "enabled" if d["enable"] else "disabled"
+            db.log_event(local, d.get("name", ""), "toggle", "v3 %s" % status)
+            return jsonify({"status": status})
+    return jsonify({"error": "not found"}), 404
+
+@app.route("/api/v3/reload", methods=["POST"])
+def api_v3_reload():
+    data = db.load()
+    haproxy.reload(data)
+    return jsonify({"status": "ok"})
+
+
 if __name__ == '__main__':
     port = int(db.get_config().get('panel_port_v2', '8081'))
     log.info(f"Starting panel v2 on port {port}")
