@@ -1,0 +1,18 @@
+[Unit]
+Description=TCP Forward Panel v2
+After=network.target haproxy.service
+Wants=haproxy.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/tcp-panel-v2
+ExecStart=/usr/bin/python3 /root/tcp-panel-v2/panel.py
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=always
+RestartSec=5
+StandardOutput=append:/root/panel-v2.log
+StandardError=append:/root/panel-v2.log
+
+[Install]
+WantedBy=multi-user.target
