@@ -610,17 +610,17 @@ def audit():
         except: _eth_rx = _eth_tx = 0
         _eth_total = _eth_rx + _eth_tx
         
-        # Get iptables counters
+        # Get iptables counters — only FORWARD chain (avoids double-counting)
         _iptables_gb = 0
         try:
             import subprocess as _sp_ipt
-            _ipt_out = _sp_ipt.check_output(['iptables', '-L', '-n', '-v', '-x'], timeout=5, stderr=__import__('subprocess').DEVNULL).decode(errors='replace')
+            _ipt_out = _sp_ipt.check_output(['iptables', '-L', 'FORWARD', '-n', '-v', '-x'], timeout=5, stderr=__import__('subprocess').DEVNULL).decode(errors='replace')
             _ipt_total = 0
             for _line in _ipt_out.split('\n'):
-                if 'Chain' in _line or 'pkts' in _line or _line.strip() == '': continue
                 _parts = _line.split()
-                if len(_parts) >= 3:
-                    try: _ipt_total += int(_parts[1])
+                if len(_parts) >= 3 and 'Chain' not in _line and 'pkts' not in _line and 'target' not in _line:
+                    try:
+                        _ipt_total += int(_parts[1])
                     except: pass
             _iptables_gb = round(_ipt_total / 1073741824, 2)
         except: pass
