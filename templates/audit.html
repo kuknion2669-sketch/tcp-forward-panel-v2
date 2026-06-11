@@ -31,7 +31,42 @@ body{background:var(--bg);color:var(--text);font:14px/1.6 sans-serif}
 <div class="cd"><div style="color:var(--success);font-weight:600">面板累计</div><div class="cv" style="color:var(--success)">{% if panel_data %}{{ panel_data[0].gb }}{% else %}--{% endif %} GB</div><div class="cl">{% if reset_time %}自 {{ reset_time }}{% else %}自 6/6{% endif %}</div></div>
 <div class="cd"><div style="color:#f59e0b;font-weight:600">eth0</div><div class="cv" style="color:#f59e0b">{{ eth0_total_gb }} GB</div><div class="cl">RX {{ eth0_rx_gb }}/TX {{ eth0_tx_gb }}</div><div class="cl">{% if reset_time %}自 {{ reset_time }}{% else %}自开机{% endif %}</div></div>
 </div>
-<div class="s" style="text-align:center;padding:40px"><div style="font-size:16px;margin-bottom:8px">数据收集中</div><div style="font-size:13px;color:var(--text2)">每 5 分钟记录一次快照，24 小时后出首日对比</div></div>
+{% if audit_snapshots %}
+<div class="s">
+  <h3 style="font-size:14px;margin-bottom:12px">快照记录（最近 20 条）</h3>
+  <div style="display:flex;flex-direction:column;gap:6px">
+  {% for snap in audit_snapshots[:10] %}
+    <div style="display:flex;justify-content:space-between;font-size:12px;padding:4px 8px;background:rgba(255,255,255,.02);border-radius:4px">
+      <span style="color:var(--text2)">{{ snap.ts }}</span>
+      <span style="color:{% if snap.source == 'haproxy' %}var(--primary){% else %}#a78bfa{% endif %}">{{ snap.source }}</span>
+      <span style="color:var(--text)">{{ "%.2f"|format(snap.gb) }} GB</span>
+    </div>
+  {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+{% if daily_data %}
+<div class="s">
+  <h3 style="font-size:14px;margin-bottom:12px">每日对比（HAProxy vs iptables 日增量）</h3>
+  <div style="display:flex;flex-direction:column;gap:6px">
+  {% for dd in daily_data %}
+    <div style="display:flex;justify-content:space-between;font-size:12px;padding:4px 8px;background:rgba(255,255,255,.02);border-radius:4px">
+      <span style="color:var(--text2)">{{ dd.date }}</span>
+      <span style="color:var(--primary)">HAProxy {{ dd.haproxy_gb }} GB</span>
+      <span style="color:#a78bfa">iptables {{ dd.iptables_gb }} GB</span>
+    </div>
+  {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+{% if not audit_snapshots and not daily_data %}
+<div class="s" style="text-align:center;padding:40px">
+  <div style="font-size:16px;margin-bottom:8px">数据收集中</div>
+  <div style="font-size:13px;color:var(--text2)">每 5 分钟记录一次快照，24 小时后出首日对比</div>
+</div>
+{% endif %}
 {% endif %}
 </div>
 <div style="text-align:center;font-size:11px;color:var(--text3);margin-top:32px;padding-bottom:20px">流量审计</div>
