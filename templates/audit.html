@@ -31,15 +31,6 @@ body{background:var(--bg);color:var(--text);font:14px/1.6 sans-serif}
 <div class="cd"><div style="color:var(--success);font-weight:600">面板累计</div><div class="cv" style="color:var(--success)">{% if panel_data %}{{ panel_data[0].gb }}{% else %}--{% endif %} GB</div><div class="cl">{% if reset_time %}自 {{ reset_time }}{% else %}自 6/6{% endif %}</div></div>
 <div class="cd"><div style="color:#f59e0b;font-weight:600">eth0</div><div class="cv" style="color:#f59e0b">{{ eth0_total_gb }} GB</div><div class="cl">RX {{ eth0_rx_gb }}/TX {{ eth0_tx_gb }}</div><div class="cl">{% if reset_time %}自 {{ reset_time }}{% else %}自开机{% endif %}</div></div>
 </div>
-{% if audit_snapshots %}
-<div class="s">
-      <span style="color:var(--text)">{{ "%.2f"|format(snap.gb) }} GB</span>
-    </div>
-  {% endfor %}
-  </div>
-</div>
-{% endif %}
-
 {% if daily_deltas %}
 <div class="s" style="overflow-x:auto">
   <h3 style="font-size:14px;margin-bottom:12px;color:var(--text)">每日流量增量对比</h3>
