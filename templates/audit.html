@@ -46,22 +46,35 @@ body{background:var(--bg);color:var(--text);font:14px/1.6 sans-serif}
 </div>
 {% endif %}
 
-{% if daily_data %}
-<div class="s">
-  <h3 style="font-size:14px;margin-bottom:12px">每日对比（HAProxy vs iptables 日增量）</h3>
-  <div style="display:flex;flex-direction:column;gap:6px">
-  {% for dd in daily_data %}
-    <div style="display:flex;justify-content:space-between;font-size:12px;padding:4px 8px;background:rgba(255,255,255,.02);border-radius:4px">
-      <span style="color:var(--text2)">{{ dd.date }}</span>
-      <span style="color:var(--primary)">HAProxy {{ dd.haproxy_gb }} GB</span>
-      <span style="color:#a78bfa">iptables {{ dd.iptables_gb }} GB</span>
-    </div>
-  {% endfor %}
-  </div>
+{% if daily_deltas %}
+<div class="s" style="overflow-x:auto">
+  <h3 style="font-size:14px;margin-bottom:12px;color:var(--text)">每日流量增量对比</h3>
+  <table style="width:100%;border-collapse:collapse;font-size:12px">
+    <thead>
+      <tr style="border-bottom:1px solid var(--border);color:var(--text2)">
+        <th style="padding:6px 8px;text-align:left">日期</th>
+        <th style="padding:6px 8px;text-align:right;color:var(--primary)">HAProxy</th>
+        <th style="padding:6px 8px;text-align:right;color:#a78bfa">iptables</th>
+        <th style="padding:6px 8px;text-align:right;color:var(--success)">面板累计</th>
+        <th style="padding:6px 8px;text-align:right;color:#f59e0b">eth0</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for dd in daily_deltas %}
+      <tr style="border-bottom:1px solid rgba(255,255,255,.04)">
+        <td style="padding:6px 8px;color:var(--text2)">{{ dd.date }}</td>
+        <td style="padding:6px 8px;text-align:right;color:var(--text)">+{{ "%.2f"|format(dd.haproxy_gb) }} GB</td>
+        <td style="padding:6px 8px;text-align:right;color:var(--text)">+{{ "%.2f"|format(dd.iptables_gb) }} GB</td>
+        <td style="padding:6px 8px;text-align:right;color:var(--text)">{% if dd.panel_gb > 0 %}+{{ "%.2f"|format(dd.panel_gb) }} GB{% else %}--{% endif %}</td>
+        <td style="padding:6px 8px;text-align:right;color:var(--text)">+{{ "%.2f"|format(dd.eth0_total_gb) }} GB</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
 </div>
 {% endif %}
 
-{% if not audit_snapshots and not daily_data %}
+{% if not audit_snapshots and not daily_deltas %}
 <div class="s" style="text-align:center;padding:40px">
   <div style="font-size:16px;margin-bottom:8px">数据收集中</div>
   <div style="font-size:13px;color:var(--text2)">每 5 分钟记录一次快照，24 小时后出首日对比</div>

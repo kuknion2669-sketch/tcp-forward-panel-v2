@@ -589,15 +589,14 @@ def audit():
         _s.sendall(b"show stat\n")
         _data = _s.recv(131072).decode()
         _s.close()
-        
         _hap_total = 0
         for _line in _data.strip().split('\n'):
             if not _line or _line.startswith('#'): continue
             _p = _line.split(',')
             if len(_p) < 10 or _p[1] != 'FRONTEND': continue
-            try:
-                _hap_total += int(_p[8] or 0) + int(_p[9] or 0)
+            try: _hap_total += int(_p[8] or 0) + int(_p[9] or 0)
             except: pass
+        _hap_gb = round(_hap_total / 1073741824, 2)
         
         # Get eth0 NIC bytes
         try:
@@ -605,16 +604,28 @@ def audit():
             for _line in _eth.split('\n'):
                 if 'eth0' in _line or 'ens' in _line:
                     _parts = _line.split()
-                    _eth_rx = int(_parts[1])
-                    _eth_tx = int(_parts[9])
+                    _eth_rx, _eth_tx = int(_parts[1]), int(_parts[9])
                     break
-            else:
-                _eth_rx = _eth_tx = 0
-        except:
-            _eth_rx = _eth_tx = 0
+            else: _eth_rx = _eth_tx = 0
+        except: _eth_rx = _eth_tx = 0
         _eth_total = _eth_rx + _eth_tx
         
-        # Get panel daily data
+        # Get iptables counters
+        _iptables_gb = 0
+        try:
+            import subprocess as _sp_ipt
+            _ipt_out = _sp_ipt.check_output(['iptables', '-L', '-n', '-v', '-x'], timeout=5, stderr=__import__('subprocess').DEVNULL).decode(errors='replace')
+            _ipt_total = 0
+            for _line in _ipt_out.split('\n'):
+                if 'Chain' in _line or 'pkts' in _line or _line.strip() == '': continue
+                _parts = _line.split()
+                if len(_parts) >= 3:
+                    try: _ipt_total += int(_parts[1])
+                    except: pass
+            _iptables_gb = round(_ipt_total / 1073741824, 2)
+        except: pass
+        
+        # Get panel cumulative daily data (from traffic.db for the 面板累计 card)
         _panel_data = []
         try:
             _pconn = _sq3.connect('/root/traffic.db')
@@ -624,51 +635,28 @@ def audit():
             _pconn.close()
         except: pass
         
-        # Compute daily deltas
-        _hap_gb = round(_hap_total / 1073741824, 2)
-        # Get audit data
-        _daily_data = []
-        _audit_data = []
-        _panel_data = []
+        # Get audit snapshots (from audit.db snap table)
+        _audit_snapshots = []
         try:
-            _aconn = __import__('sqlite3').connect('/root/audit/audit.db')
+            _aconn = _sq3.connect('/root/audit/audit.db')
             _ac = _aconn.cursor()
-            _ac.execute('SELECT date, haproxy_bytes, iptables_bytes FROM daily ORDER BY date DESC LIMIT 10')
-            _daily_data = [{'date': r[0], 'haproxy_gb': round(r[1]/1073741824, 2),
-                         'iptables_gb': round(r[2]/1073741824, 2)} for r in _ac.fetchall()]
             _ac.execute('SELECT ts, source, total_bytes FROM snap ORDER BY ts DESC LIMIT 20')
-            _audit_data = [{'ts': r[0], 'source': r[1], 'gb': round(r[2]/1073741824, 2)} for r in _ac.fetchall()]
+            _audit_snapshots = [{'ts': r[0], 'source': r[1], 'gb': round(r[2]/1073741824, 2)} for r in _ac.fetchall()]
             _aconn.close()
-        except:
-            pass
+        except: pass
         
+        # Get daily deltas (from audit.db daily_delta table — precomputed by verify.py)
+        _daily_deltas = []
         try:
-            _pconn = __import__('sqlite3').connect('/root/traffic.db')
-            _pc = _pconn.cursor()
-            _pc.execute('SELECT date, total_traffic FROM daily ORDER BY date DESC LIMIT 10')
-            _panel_data = [{'date': r[0], 'mb': r[1], 'gb': round(r[1]/1024, 1)} for r in _pc.fetchall()]
-            _pconn.close()
-        except:
-            pass
-        
-        # Get iptables counters
-        _iptables_gb = 0
-        try:
-            import subprocess as _sp_ipt
-            _ipt_out = _sp_ipt.check_output(['iptables', '-L', '-n', '-v', '-x'], timeout=5, stderr=__import__('subprocess').DEVNULL).decode(errors='replace')
-            import re as _re_ipt
-            _ipt_total = 0
-            for _line in _ipt_out.split('\n'):
-                if 'Chain' in _line or 'pkts' in _line or _line.strip() == '':
-                    continue
-                _parts = _line.split()
-                if len(_parts) >= 3:
-                    try:
-                        _ipt_total += int(_parts[1])  # bytes column
-                    except: pass
-            _iptables_gb = round(_ipt_total / 1073741824, 2)
-        except:
-            _iptables_gb = 0
+            _dconn = _sq3.connect('/root/audit/audit.db')
+            _dc = _dconn.cursor()
+            _dc.execute('SELECT date, haproxy_bytes, iptables_bytes, panel_mb, eth0_rx, eth0_tx FROM daily_delta ORDER BY date DESC LIMIT 30')
+            _daily_deltas = [{'date': r[0], 'haproxy_gb': r[1], 'iptables_gb': r[2],
+                             'panel_gb': round(r[3]/1024, 2) if r[3] else 0,
+                             'eth0_rx_gb': r[4], 'eth0_tx_gb': r[5],
+                             'eth0_total_gb': round(r[4] + r[5], 2)} for r in _dc.fetchall()]
+            _dconn.close()
+        except: pass
         
         return render_template('audit.html',
             haproxy_gb=_hap_gb,
@@ -677,9 +665,9 @@ def audit():
             eth0_rx_gb=round(_eth_rx/1073741824, 2),
             eth0_tx_gb=round(_eth_tx/1073741824, 2),
             eth0_total_gb=round(_eth_total/1073741824, 2),
-            daily_data=_daily_data,
-            audit_snapshots=_audit_data,
-            panel_data=_panel_data)
+            panel_data=_panel_data,
+            audit_snapshots=_audit_snapshots,
+            daily_deltas=_daily_deltas)
     except Exception as _e:
         log.error(f"Audit error: {_e}")
         return render_template('audit.html', error=str(_e))
