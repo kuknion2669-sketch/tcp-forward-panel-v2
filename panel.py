@@ -516,12 +516,71 @@ def api_v3_reload():
 
 
 
+
+@app.route('/api/reset_traffic', methods=['POST'])
+@login_required
+def reset_traffic():
+    """Reset all traffic counters to zero"""
+    try:
+        import sqlite3 as _sq, json as _js, subprocess as _sp
+        
+        # Save current HAProxy bytes as baseline
+        _sock = __import__('socket').socket(__import__('socket').AF_UNIX, __import__('socket').SOCK_STREAM)
+        _sock.settimeout(3)
+        _sock.connect(haproxy.sock)
+        _sock.sendall(b"show stat\n")
+        _data = _sock.recv(131072).decode()
+        _sock.close()
+        
+        _new_lt = {}
+        for _line in _data.strip().split('\n'):
+            if not _line or _line.startswith('#'): continue
+            _p = _line.split(',')
+            if len(_p) < 10: continue
+            if _p[1] != 'BACKEND': continue
+            if _p[2] != '': continue
+            try:
+                _n = _p[0].replace('be_', '')
+                _new_lt[_n] = {'bin': int(_p[8] or 0), 'bout': int(_p[9] or 0)}
+            except: pass
+        
+        _conn = _sq.connect('/root/traffic.db')
+        _c = _conn.cursor()
+        _c.execute('UPDATE rules SET used=0, used_in=0, used_out=0')
+        _c.execute('DELETE FROM daily')
+        _c.execute('INSERT OR REPLACE INTO config VALUES(?,?)', ('stats_last_traffic', _js.dumps(_new_lt)))
+        _conn.commit()
+        _conn.close()
+        
+        _sp.run(['iptables', '-Z'], capture_output=True, timeout=5)
+        _sp.run(['rm', '-f', '/root/audit/audit.db'], capture_output=True, timeout=5)
+        
+        _ts = __import__('datetime').datetime.now().strftime('%Y-%m-%d %H:%M')
+        _c2 = _sq.connect('/root/traffic.db')
+        _c2.execute('INSERT OR REPLACE INTO config VALUES(?,?)', ('reset_time', _ts))
+        _c2.commit()
+        _c2.close()
+        log.info("Traffic counters reset by user at " + _ts)
+        return jsonify({'ok': True, 'msg': '所有流量计数已重置'})
+    except Exception as _e:
+        log.error(f"Reset failed: {_e}")
+        return jsonify({'ok': False, 'error': str(_e)})
+
+
 @app.route('/audit')
 @login_required
 def audit():
-    """Traffic audit - cross-validate HAProxy vs iptables"""
+    """Traffic audit - cross-validate HAProxy vs panel vs eth0"""
     try:
         import sqlite3 as _sq3, socket as _sock, json as _json
+        
+        # Get reset_time from config
+        _rt_conn = _sq3.connect('/root/traffic.db')
+        _rt_cur = _rt_conn.cursor()
+        _rt_cur.execute("SELECT value FROM config WHERE key='reset_time'")
+        _rt_row = _rt_cur.fetchone()
+        _reset_time = _rt_row[0] if _rt_row else None
+        _rt_conn.close()
         
         # Get HAProxy current bytes
         _s = _sock.socket(_sock.AF_UNIX, _sock.SOCK_STREAM)
@@ -540,36 +599,20 @@ def audit():
                 _hap_total += int(_p[8] or 0) + int(_p[9] or 0)
             except: pass
         
-        # Get iptables current bytes
-        import subprocess as _sp
-        _raw = _sp.getoutput("iptables -L INPUT -n -v -x 2>/dev/null") + '\n' + \
-               _sp.getoutput("iptables -L OUTPUT -n -v -x 2>/dev/null")
-        _ipt_in = 0; _ipt_out = 0
-        for _line in _raw.split('\n'):
-            _parts = _line.split()
-            if len(_parts) < 5: continue
-            _t = _parts[2]
-            if _t.startswith('IN_') and _parts[0].isdigit():
-                try: _ipt_in += int(_parts[1])
-                except: pass
-            elif _t.startswith('OUT_') and _parts[0].isdigit():
-                try: _ipt_out += int(_parts[1])
-                except: pass
-        _ipt_total = _ipt_in + _ipt_out
-        
-        # Get audit.db daily data
-        _audit_data = []
-        _daily_data = []
+        # Get eth0 NIC bytes
         try:
-            _aconn = _sq3.connect('/root/audit/audit.db')
-            _ac = _aconn.cursor()
-            _ac.execute("SELECT date, haproxy_bytes, iptables_bytes FROM daily ORDER BY date DESC LIMIT 10")
-            _daily_data = [{"date": r[0], "haproxy_gb": round(r[1]/1073741824, 2),
-                           "iptables_gb": round(r[2]/1073741824, 2)} for r in _ac.fetchall()]
-            _ac.execute("SELECT ts, source, total_bytes FROM snap ORDER BY ts DESC LIMIT 20")
-            _audit_data = [{"ts": r[0], "source": r[1], "gb": round(r[2]/1073741824, 2)} for r in _ac.fetchall()]
-            _aconn.close()
-        except: pass
+            _eth = open('/proc/net/dev').read()
+            for _line in _eth.split('\n'):
+                if 'eth0' in _line or 'ens' in _line:
+                    _parts = _line.split()
+                    _eth_rx = int(_parts[1])
+                    _eth_tx = int(_parts[9])
+                    break
+            else:
+                _eth_rx = _eth_tx = 0
+        except:
+            _eth_rx = _eth_tx = 0
+        _eth_total = _eth_rx + _eth_tx
         
         # Get panel daily data
         _panel_data = []
@@ -583,13 +626,57 @@ def audit():
         
         # Compute daily deltas
         _hap_gb = round(_hap_total / 1073741824, 2)
-        _ipt_gb = round(_ipt_total / 1073741824, 2)
+        # Get audit data
+        _daily_data = []
+        _audit_data = []
+        _panel_data = []
+        try:
+            _aconn = __import__('sqlite3').connect('/root/audit/audit.db')
+            _ac = _aconn.cursor()
+            _ac.execute('SELECT date, haproxy_bytes, iptables_bytes FROM daily ORDER BY date DESC LIMIT 10')
+            _daily_data = [{'date': r[0], 'haproxy_gb': round(r[1]/1073741824, 2),
+                         'iptables_gb': round(r[2]/1073741824, 2)} for r in _ac.fetchall()]
+            _ac.execute('SELECT ts, source, total_bytes FROM snap ORDER BY ts DESC LIMIT 20')
+            _audit_data = [{'ts': r[0], 'source': r[1], 'gb': round(r[2]/1073741824, 2)} for r in _ac.fetchall()]
+            _aconn.close()
+        except:
+            pass
+        
+        try:
+            _pconn = __import__('sqlite3').connect('/root/traffic.db')
+            _pc = _pconn.cursor()
+            _pc.execute('SELECT date, total_traffic FROM daily ORDER BY date DESC LIMIT 10')
+            _panel_data = [{'date': r[0], 'mb': r[1], 'gb': round(r[1]/1024, 1)} for r in _pc.fetchall()]
+            _pconn.close()
+        except:
+            pass
+        
+        # Get iptables counters
+        _iptables_gb = 0
+        try:
+            import subprocess as _sp_ipt
+            _ipt_out = _sp_ipt.check_output(['iptables', '-L', '-n', '-v', '-x'], timeout=5, stderr=__import__('subprocess').DEVNULL).decode(errors='replace')
+            import re as _re_ipt
+            _ipt_total = 0
+            for _line in _ipt_out.split('\n'):
+                if 'Chain' in _line or 'pkts' in _line or _line.strip() == '':
+                    continue
+                _parts = _line.split()
+                if len(_parts) >= 3:
+                    try:
+                        _ipt_total += int(_parts[1])  # bytes column
+                    except: pass
+            _iptables_gb = round(_ipt_total / 1073741824, 2)
+        except:
+            _iptables_gb = 0
         
         return render_template('audit.html',
             haproxy_gb=_hap_gb,
-            iptables_gb=_ipt_gb,
-            iptables_in_gb=round(_ipt_in/1073741824, 2),
-            iptables_out_gb=round(_ipt_out/1073741824, 2),
+            iptables_gb=_iptables_gb,
+            reset_time=_reset_time,
+            eth0_rx_gb=round(_eth_rx/1073741824, 2),
+            eth0_tx_gb=round(_eth_tx/1073741824, 2),
+            eth0_total_gb=round(_eth_total/1073741824, 2),
             daily_data=_daily_data,
             audit_snapshots=_audit_data,
             panel_data=_panel_data)

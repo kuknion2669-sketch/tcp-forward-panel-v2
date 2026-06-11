@@ -1,195 +1,54 @@
 <!DOCTYPE html>
 <html lang="zh">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>流量审计 - TCP 转发管理</title>
-<style>
-:root{
-  --bg:#070b14;--card:#0d1225;--card2:#111827;--border:#1e293b;
-  --text:#e2e8f0;--text2:#64748b;--text3:#475569;
-  --primary:#3b82f6;--primary-dim:#1d4ed8;
-  --success:#22c55e;--danger:#ef4444;--warn:#eab308;
-  --radius:10px;--radius-sm:6px;
-}
+<head><meta charset="UTF-8"><title>流量审计</title><style>
+:root{--bg:#070b14;--card:#0d1225;--border:#1e293b;--text:#e2e8f0;--text2:#64748b;--primary:#3b82f6;--success:#22c55e;--radius:10px}
 *{margin:0;padding:0;box-sizing:border-box}
-body{background:var(--bg);color:var(--text);font:14px/1.6 -apple-system,system-ui,sans-serif;min-height:100vh}
-.topbar{
-  background:var(--card);border-bottom:1px solid var(--border);
-  padding:0 28px;height:56px;display:flex;align-items:center;justify-content:space-between;
-  position:sticky;top:0;z-index:100;
-}
+body{background:var(--bg);color:var(--text);font:14px/1.6 sans-serif}
+.topbar{background:var(--card);border-bottom:1px solid var(--border);padding:0 28px;height:56px;display:flex;align-items:center;justify-content:space-between}
 .brand{display:flex;align-items:center;gap:12px;text-decoration:none;color:inherit}
-.brand-icon{width:32px;height:32px;border-radius:8px;background:linear-gradient(135deg,var(--primary),#6366f1);display:flex;align-items:center;justify-content:center;font-size:16px;color:#fff;font-weight:700}
-.brand-text{font-size:15px;font-weight:600}
-.brand-text span{color:var(--text2);font-weight:400}
-.top-actions{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
-.container{max-width:1100px;margin:0 auto;padding:24px 28px}
-
-.card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:20px 24px;margin-bottom:16px}
-.card-title{font-size:14px;font-weight:600;color:var(--text);margin-bottom:16px}
-.card-sub{font-size:12px;color:var(--text2);margin-bottom:8px}
-
-.stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:24px}
-.stat-item{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:16px 20px;text-align:center}
-.stat-val{font-size:24px;font-weight:700;line-height:1.2}
-.stat-lbl{font-size:12px;color:var(--text2);margin-top:4px}
-.stat-item.good .stat-val{color:var(--success)}
-.stat-item.alert .stat-val{color:var(--danger)}
-
-table{width:100%;border-collapse:collapse;font-size:13px}
-th{text-align:left;padding:8px 12px;color:var(--text2);font-weight:500;border-bottom:1px solid var(--border);font-size:12px}
-td{padding:8px 12px;border-bottom:1px solid rgba(30,41,59,.5)}
-tr:hover td{background:rgba(59,130,246,.03)}
-.num{font-family:"SF Mono",Consolas,monospace;text-align:right;font-variant-numeric:tabular-nums}
-.good{color:var(--success)}
-.warn{color:var(--warn)}
-.danger{color:var(--danger)}
-
-.btn{
-  display:inline-flex;align-items:center;gap:4px;
-  padding:6px 14px;border-radius:var(--radius-sm);font-size:13px;font-weight:500;
-  cursor:pointer;border:1px solid transparent;transition:all .12s;text-decoration:none
-}
-.btn-ghost{background:transparent;color:var(--text2);border-color:var(--border)}
-.btn-ghost:hover{border-color:var(--text2);color:var(--text)}
-.btn-sm{padding:4px 10px;font-size:12px}
-
-.footer{text-align:center;font-size:11px;color:var(--text3);margin-top:40px;padding-bottom:20px}
-
-@media(max-width:720px){
-  .container{padding:16px}
-  .topbar{padding:0 16px}
-  .stat-grid{grid-template-columns:1fr 1fr}
-}
-</style>
-</head>
-<body>
-
+.brand-icon{width:32px;height:32px;border-radius:8px;background:linear-gradient(135deg,var(--primary),#6366f1);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700}
+.container{max-width:800px;margin:0 auto;padding:24px 28px}
+.note{padding:16px 20px;border-radius:var(--radius);margin-bottom:20px;background:rgba(234,179,8,.08);border:1px solid rgba(234,179,8,.25);display:flex;align-items:center;gap:12px}
+.cards{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px}
+.cd{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:16px;text-align:center}
+.cv{font-size:24px;font-weight:700;margin:6px 0}
+.cl{font-size:11px;color:var(--text2)}
+.s{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:20px 24px;margin-bottom:12px}
+.btn{display:inline-flex;padding:6px 14px;border-radius:6px;font-size:13px;cursor:pointer;border:1px solid var(--border);background:transparent;color:var(--text2);text-decoration:none}
+</style></head><body>
 <div class="topbar">
-  <a href="/" class="brand">
-    <div class="brand-icon">⛭</div>
-    <div class="brand-text">TCP 转发管理 <span>V2 正式版 1.0</span></div>
-  </a>
-  <div class="top-actions">
-    <a href="/" class="btn btn-ghost btn-sm">← 返回</a>
-    <button class="btn btn-ghost btn-sm" onclick="location.reload()">刷新</button>
-  </div>
-</div>
-
-<div class="container">
-
+<a href="/" class="brand"><div class="brand-icon">X</div><div class="brand-text">TCP 转发管理</div></a>
+<a href="/" class="btn">返回</a>
+<button class="btn" onclick="resetTraffic()" id="resetBtn" style="color:var(--warn);border-color:rgba(234,179,8,.3)">重置</button>
+</div><div class="container">
 {% if error is defined %}
-<div class="card" style="text-align:center;padding:40px">
-  <div style="font-size:16px;color:var(--danger);margin-bottom:8px">⚠️ 审计数据加载失败</div>
-  <div style="font-size:13px;color:var(--text2)">{{ error }}</div>
-</div>
+<div style="padding:20px;border-radius:var(--radius);background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.25);margin-bottom:20px"><h2>Error</h2><p>{{ error }}</p></div>
 {% else %}
-
-<!-- Current Snapshot -->
-<div class="stat-grid">
-  <div class="stat-item">
-    <div class="stat-val" style="color:var(--primary)">{{ haproxy_gb }} <span style="font-size:14px;font-weight:400;color:var(--text2)">GB</span></div>
-    <div class="stat-lbl">HAProxy FRONTEND 累计</div>
-  </div>
-  <div class="stat-item">
-    <div class="stat-val" style="color:#a78bfa">{{ iptables_gb }} <span style="font-size:14px;font-weight:400;color:var(--text2)">GB</span></div>
-    <div class="stat-lbl">iptables IN+OUT 累计</div>
-  </div>
-  <div class="stat-item {% if match > 90 %}good{% elif match > 70 %}alert{% endif %}">
-    <div class="stat-val">{{ "%.1f" % match }}%</div>
-    <div class="stat-lbl">HAProxy vs iptables 匹配度</div>
-  </div>
+<div class="note"><div><h2>{% if reset_time %}统一重置时间：{{ reset_time }}{% else %}注意：时间跨度不同{% endif %}</h2><p>{% if reset_time %}所有卡片从同一时刻开始统计，数据来自不同源头（HAProxy 应用层统计 / iptables 内核统计 / 面板累计 / eth0 物理网卡）。{% else %}HAProxy 自服务上次重启累计，iptables 自规则创建累计，eth0 自系统开机累计。点击顶栏「重置」可统一起始时间。{% endif %}</p></div></div>
+<div class="cards">
+<div class="cd"><div style="color:var(--primary);font-weight:600">HAProxy</div><div class="cv" style="color:var(--primary)">{{ haproxy_gb }} GB</div><div class="cl">{% if reset_time %}自 {{ reset_time }}{% else %}自 6/9 重启{% endif %}</div></div>
+<div class="cd"><div style="color:#a78bfa;font-weight:600">iptables</div><div class="cv" style="color:#a78bfa">{{ iptables_gb }} GB</div><div class="cl">{% if reset_time %}自 {{ reset_time }}{% else %}内核计数{% endif %}</div></div>
+<div class="cd"><div style="color:var(--success);font-weight:600">面板累计</div><div class="cv" style="color:var(--success)">{% if panel_data %}{{ panel_data[0].gb }}{% else %}--{% endif %} GB</div><div class="cl">{% if reset_time %}自 {{ reset_time }}{% else %}自 6/6{% endif %}</div></div>
+<div class="cd"><div style="color:#f59e0b;font-weight:600">eth0</div><div class="cv" style="color:#f59e0b">{{ eth0_total_gb }} GB</div><div class="cl">RX {{ eth0_rx_gb }}/TX {{ eth0_tx_gb }}</div><div class="cl">{% if reset_time %}自 {{ reset_time }}{% else %}自开机{% endif %}</div></div>
 </div>
-
-<!-- iptables Breakdown -->
-<div class="card">
-  <div class="card-title">iptables 明细</div>
-  <div style="display:flex;gap:24px;font-size:13px">
-    <div><span style="color:var(--text2)">▼ 入站(IN):</span> <strong style="color:var(--primary)">{{ iptables_in_gb }} GB</strong> <span style="color:var(--text2);font-size:11px">(客户端→代理接收)</span></div>
-    <div><span style="color:var(--text2)">▲ 出站(OUT):</span> <strong style="color:var(--success)">{{ iptables_out_gb }} GB</strong> <span style="color:var(--text2);font-size:11px">(代理→客户端发送)</span></div>
-  </div>
-</div>
-
-<!-- Daily Comparison -->
-<div class="card">
-  <div class="card-title">📊 每日流量对比</div>
-  {% if daily_data %}
-  <table>
-    <tr><th>日期</th><th class="num">HAProxy (GB)</th><th class="num">iptables (GB)</th><th class="num">面板 (GB)</th><th>偏差</th></tr>
-    {% for row in daily_data %}
-    <tr>
-      <td>{{ row.date }}</td>
-      <td class="num">{{ row.haproxy_gb }}</td>
-      <td class="num">{{ row.iptables_gb }}</td>
-      <td class="num">{% if panel_data and loop.index0 < panel_data|length %}{{ panel_data[loop.index0].gb }}{% else %}—{% endif %}</td>
-      <td class="num">
-        {% set diff = (row.haproxy_gb - row.iptables_gb)|abs %}
-        {% set pct = (diff / row.haproxy_gb * 100)|round(1) if row.haproxy_gb > 0 else 0 %}
-        <span class="{% if pct < 5 %}good{% elif pct < 15 %}warn{% else %}danger{% endif %}">{{ diff }} GB ({{ pct }}%)</span>
-      </td>
-    </tr>
-    {% endfor %}
-  </table>
-  {% else %}
-  <div style="text-align:center;padding:20px;color:var(--text2);font-size:13px">
-    数据收集中…… 审计脚本每5分钟跑一次，跑够一整天后这里会显示每天的差异对比。
-  </div>
-  {% endif %}
-</div>
-
-<!-- Panel Daily Table -->
-<div class="card">
-  <div class="card-title">📋 面板 daily 表累计</div>
-  {% if panel_data %}
-  <table>
-    <tr><th>日期</th><th class="num">累计 (MB)</th><th class="num">累计 (GB)</th><th>当日增量</th></tr>
-    {% for row in panel_data %}
-    <tr>
-      <td>{{ row.date }}</td>
-      <td class="num">{{ "%.1f" % row.mb }}</td>
-      <td class="num">{{ row.gb }}</td>
-      <td class="num">
-        {% if not loop.last %}
-          {% set prev = panel_data[loop.index0 + 1] %}
-          {% set daily = row.mb - prev.mb %}
-          <span style="color:var(--success)">{{ "%.1f" % daily }} MB ({{ "%.1f" % (daily/1024) }} GB)</span>
-        {% else %}
-          <span style="color:var(--text2)">基线</span>
-        {% endif %}
-      </td>
-    </tr>
-    {% endfor %}
-  </table>
-  {% else %}
-  <div style="text-align:center;padding:20px;color:var(--text2)">无数据</div>
-  {% endif %}
-</div>
-
-<!-- Recent Snapshots -->
-<div class="card">
-  <div class="card-title">⏱ 最近快照</div>
-  {% if audit_snapshots %}
-  <table>
-    <tr><th>时间</th><th>来源</th><th class="num">累计 (GB)</th></tr>
-    {% for snap in audit_snapshots[:10] %}
-    <tr>
-      <td style="font-variant-numeric:tabular-nums">{{ snap.ts }}</td>
-      <td><span class="{% if snap.source == 'haproxy' %}" style="color:var(--primary)"{% else %}" style="color:#a78bfa"{% endif %}>{{ snap.source }}</span></td>
-      <td class="num">{{ snap.gb }}</td>
-    </tr>
-    {% endfor %}
-  </table>
-  {% endif %}
-</div>
-
+<div class="s" style="text-align:center;padding:40px"><div style="font-size:16px;margin-bottom:8px">数据收集中</div><div style="font-size:13px;color:var(--text2)">每 5 分钟记录一次快照，24 小时后出首日对比</div></div>
 {% endif %}
-
 </div>
+<div style="text-align:center;font-size:11px;color:var(--text3);margin-top:32px;padding-bottom:20px">流量审计</div>
 
-<div class="footer">
-  V2 正式版 1.0 · 交叉验证审计
-</div>
+<script>
+function resetTraffic(){
+  if(!confirm("确定重置所有流量计数？\n\n- 面板累计 → 0\n- HAProxy基线 → 当前值（继续从零计）\n- iptables → 归零\n- audit.db → 重建\n\n注意：重置不可撤销，历史数据将丢失。")) return;
+  var btn = document.getElementById("resetBtn");
+  btn.disabled = true; btn.textContent = "重置中...";
+  fetch("/api/reset_traffic", {method:"POST"})
+  .then(function(r){return r.json()})
+  .then(function(d){
+    if(d.ok){alert("重置成功！"); location.reload();}
+    else{alert("重置失败：" + d.error); btn.disabled = false; btn.textContent = "重置";}
+  })
+  .catch(function(){alert("请求失败"); btn.disabled = false; btn.textContent = "重置";});
+}
+</script>
 
-</body>
-</html>
+</body></html>
