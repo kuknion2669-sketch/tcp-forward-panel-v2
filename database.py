@@ -19,7 +19,8 @@ class Database:
             port TEXT NOT NULL, expire TEXT DEFAULT "",
             quota REAL DEFAULT 0, used REAL DEFAULT 0,
             used_in REAL DEFAULT 0, used_out REAL DEFAULT 0,
-            enable INTEGER DEFAULT 1, note TEXT DEFAULT ""
+            enable INTEGER DEFAULT 1, note TEXT DEFAULT "",
+            group_name TEXT DEFAULT ""
         )''')
         c.execute('''CREATE TABLE IF NOT EXISTS traffic (
             date TEXT, port TEXT, name TEXT, used REAL,
@@ -43,6 +44,14 @@ class Database:
         for k, v in [('panel_port', '8081'), ('username', 'admin'),
                      ('password_hash', '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9')]:
             c.execute('INSERT OR IGNORE INTO config VALUES (?,?)', (k, v))
+        # Migration: add group_name for v13->v2 upgrade
+        try:
+            cols = [r[1] for r in c.execute("PRAGMA table_info(rules)").fetchall()]
+            if "group_name" not in cols:
+                c.execute("ALTER TABLE rules ADD COLUMN group_name TEXT DEFAULT ''")
+                log.info("Migration: added group_name column")
+        except Exception as e:
+            log.warning(f"Migration: could not add group_name - {e}")
         conn.commit()
         conn.close()
 
