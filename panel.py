@@ -310,6 +310,7 @@ def edit(idx):
     item = dict(data[idx])
     if request.method == 'POST':
         old = data[idx]
+        auto_assigned = ''
         new_local = request.form.get('local', '').strip()
         new_name = request.form.get('name', '').strip()
         new_ip = request.form.get('ip', '').strip()
@@ -321,11 +322,14 @@ def edit(idx):
             return redirect(request.referrer or '/')
         if new_local != old.get("local", "") and is_sensitive_port(new_local):
             free = haproxy.free_port()
-            return redirect("/?ecode=sensitive&free=" + free)
+            new_local = free
+            auto_assigned = 'sensitive'
         for oi, o in enumerate(data):
             if oi != idx and o.get('local') == new_local:
                 free = haproxy.free_port()
-                return redirect("/?ecode=occupied&free=" + free)
+                new_local = free
+                auto_assigned = 'occupied'
+                break
         ne = request.form.get('expire', '').strip()
         expire = haproxy.parse_expire(ne)
         new_note = request.form.get('note', '').strip()
@@ -337,6 +341,8 @@ def edit(idx):
         haproxy.reload(data)
         log.info(f"Edited rule #{idx}: {new_name}")
         db.log_event(new_local, new_name, "edit", f"edit: {new_local}")
+        if auto_assigned:
+            return redirect("/?ecode=" + auto_assigned + "&free=" + new_local)
         return redirect(request.referrer or '/')
     exp_dt = ''
     if item.get('expire'):
