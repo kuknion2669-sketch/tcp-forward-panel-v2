@@ -20,24 +20,16 @@ input:focus{border-color:#3b82f6}
 .btn-ghost{background:transparent;color:#64748b;border:1px solid #1e293b;text-decoration:none}.btn-ghost:hover{border-color:#64748b;color:#e2e8f0}
 </style>
 </head>
-<!-- Toast Notification -->
+
 <style>
 #toast{display:none;position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:9999;background:#1e293b;border:1px solid #334155;border-radius:8px;padding:12px 24px;color:#e2e8f0;font-size:14px;box-shadow:0 4px 24px rgba(0,0,0,.4);text-align:center;max-width:500px;transition:opacity .5s}
 </style>
-<div id= toast></div>
+<div id="toast"></div>
 <script>
-(function(){
-  var p=new URLSearchParams(location.search);
-  var eco=p.get(ecode),free=p.get(free);
-  var t=document.getElementById(toast);
-  var txt=;
- if(eco==sensitive) txt=[!] 敏感端口，已自动分配空闲端口: +free;
- else if(eco== occupied) txt=[!] 端口被占用，已自动分配空闲端口: +free;
- else if(p.get( msg)==port_taken) txt=[!] 端口被占用，已自动分配空闲端口: +free;
- else if(p.get( msg)==sensitive_port) txt=[!] 敏感端口，已自动分配空闲端口: +free;
- if(txt){t.textContent=txt;t.style.display= block;setTimeout(function(){t.style.opacity=0;setTimeout(function(){t.style.display=none},500)},4000)}
-})();
-</script><body>
+(function(){var p=new URLSearchParams(location.search);var eco=p.get("ecode"),free=p.get("free");var t=document.getElementById("toast");var txt="";if(eco=="sensitive")txt="[!] 敏感端口，已自动分配空闲端口: "+free;else if(eco=="occupied")txt="[!] 端口被占用，已自动分配空闲端口: "+free;if(txt){t.textContent=txt;t.style.display="block";setTimeout(function(){t.style.opacity="0";setTimeout(function(){t.style.display="none"},500)},4000)}})();
+</script>
+
+<body>
 <div class="topbar">
   <a href="/" style="text-decoration:none;color:inherit;display:flex;align-items:center;gap:12px">
     <div class="brand-icon">⛭</div>
