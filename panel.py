@@ -245,7 +245,7 @@ def batch_add():
     db.save(data)
     haproxy.reload(data)
     log.info(f"Batch added {len(rules)} rules")
-    db.log_event("", "", "batch_add", f"batch add: {len(rules)} rules")
+    db.log_event("", "", "batch_add", f"batch add: {len(new_rules)} rules")
     return redirect(request.referrer or '/')
 
 @app.route('/del/<int:idx>')
@@ -259,7 +259,7 @@ def delete(idx):
         db.save(data)
         haproxy.reload(data)
         log.info(f"Deleted rule #{idx}: {name}")
-
+    db.log_event(local, name, "delete", f"delete: {local}")
     return jsonify({'ok': ok})
 
 @app.route('/check/<int:idx>')
@@ -314,7 +314,7 @@ def edit(idx):
             return redirect(request.referrer or '/')
         if not new_local.isdigit() or not new_port.isdigit():
             return redirect(request.referrer or '/')
-        if is_sensitive_port(new_local):
+        if new_local != old.get("local", "") and is_sensitive_port(new_local):
             return redirect(request.referrer or '/')
         for oi, o in enumerate(data):
             if oi != idx and o.get('local') == new_local:
@@ -348,8 +348,7 @@ def reset_quota(idx):
         db.save(data)
         stats.clear_last(data[idx]['local'])
         log.info(f"Reset quota for #{idx}: {data[idx].get('name','')}")
-    local_val = data[idx].get("local","") if 0 <= idx < len(data) else ""
-    db.log_event(local_val, data[idx].get("name",""), "reset_quota", f"reset_quota: {local_val}")
+    db.log_event(local, data[idx].get("name",""), "reset_quota", f"reset_quota: {local}")
     return redirect(request.referrer or '/')
 
 @app.route('/restart/<local>')
@@ -384,7 +383,7 @@ def api_toggle(local):
                 s.sendall(cmd.encode())
                 s.close()
                 log.info(f"Toggle {local}: {'enabled' if enabled else 'disabled'} via socket")
-                db.log_event(local, item.get("name",""), "toggle", f"toggle: {local} {'enabled' if enabled else 'disabled'}")
+                db.log_event(local, d.get("name",""), "toggle", f"toggle: {local} {status}")
             except Exception as e:
                 log.warning(f"Socket toggle failed for {local}: {e}, falling back to reload")
                 haproxy.reload(data)
@@ -529,164 +528,6 @@ def api_v3_reload():
     data = db.load()
     haproxy.reload(data)
     return jsonify({"status": "ok"})
-
-
-
-
-@app.route('/api/reset_traffic', methods=['POST'])
-@login_required
-def reset_traffic():
-    """Reset all traffic counters to zero"""
-    try:
-        import sqlite3 as _sq, json as _js, subprocess as _sp
-        
-        # Save current HAProxy bytes as baseline
-        _sock = __import__('socket').socket(__import__('socket').AF_UNIX, __import__('socket').SOCK_STREAM)
-        _sock.settimeout(3)
-        _sock.connect(haproxy.sock)
-        _sock.sendall(b"show stat\n")
-        _data = _sock.recv(131072).decode()
-        _sock.close()
-        
-        _new_lt = {}
-        for _line in _data.strip().split('\n'):
-            if not _line or _line.startswith('#'): continue
-            _p = _line.split(',')
-            if len(_p) < 10: continue
-            if _p[1] != 'BACKEND': continue
-            if _p[2] != '': continue
-            try:
-                _n = _p[0].replace('be_', '')
-                _new_lt[_n] = {'bin': int(_p[8] or 0), 'bout': int(_p[9] or 0)}
-            except: pass
-        
-        _conn = _sq.connect('/root/traffic.db')
-        _c = _conn.cursor()
-        _c.execute('UPDATE rules SET used=0, used_in=0, used_out=0')
-        _c.execute('DELETE FROM daily')
-        _c.execute('INSERT OR REPLACE INTO config VALUES(?,?)', ('stats_last_traffic', _js.dumps(_new_lt)))
-        _conn.commit()
-        _conn.close()
-        
-        _sp.run(['iptables', '-Z'], capture_output=True, timeout=5)
-        _sp.run(['rm', '-f', '/root/audit/audit.db'], capture_output=True, timeout=5)
-        
-        _ts = __import__('datetime').datetime.now().strftime('%Y-%m-%d %H:%M')
-        _c2 = _sq.connect('/root/traffic.db')
-        _c2.execute('INSERT OR REPLACE INTO config VALUES(?,?)', ('reset_time', _ts))
-        _c2.commit()
-        _c2.close()
-        log.info("Traffic counters reset by user at " + _ts)
-        return jsonify({'ok': True, 'msg': '所有流量计数已重置'})
-    except Exception as _e:
-        log.error(f"Reset failed: {_e}")
-        return jsonify({'ok': False, 'error': str(_e)})
-
-
-@app.route('/audit')
-@login_required
-def audit():
-    """Traffic audit - cross-validate HAProxy vs panel vs eth0"""
-    try:
-        import sqlite3 as _sq3, socket as _sock, json as _json
-        
-        # Get reset_time from config
-        _rt_conn = _sq3.connect('/root/traffic.db')
-        _rt_cur = _rt_conn.cursor()
-        _rt_cur.execute("SELECT value FROM config WHERE key='reset_time'")
-        _rt_row = _rt_cur.fetchone()
-        _reset_time = _rt_row[0] if _rt_row else None
-        _rt_conn.close()
-        
-        # Get HAProxy current bytes
-        _s = _sock.socket(_sock.AF_UNIX, _sock.SOCK_STREAM)
-        _s.settimeout(3)
-        _s.connect(haproxy.sock)
-        _s.sendall(b"show stat\n")
-        _data = _s.recv(131072).decode()
-        _s.close()
-        _hap_total = 0
-        for _line in _data.strip().split('\n'):
-            if not _line or _line.startswith('#'): continue
-            _p = _line.split(',')
-            if len(_p) < 10 or _p[1] != 'FRONTEND': continue
-            try: _hap_total += int(_p[8] or 0) + int(_p[9] or 0)
-            except: pass
-        _hap_gb = round(_hap_total / 1073741824, 2)
-        
-        # Get eth0 NIC bytes
-        try:
-            _eth = open('/proc/net/dev').read()
-            for _line in _eth.split('\n'):
-                if 'eth0' in _line or 'ens' in _line:
-                    _parts = _line.split()
-                    _eth_rx, _eth_tx = int(_parts[1]), int(_parts[9])
-                    break
-            else: _eth_rx = _eth_tx = 0
-        except: _eth_rx = _eth_tx = 0
-        _eth_total = _eth_rx + _eth_tx
-        
-        # Get iptables counters — only FORWARD chain (avoids double-counting)
-        _iptables_gb = 0
-        try:
-            import subprocess as _sp_ipt
-            _ipt_out = _sp_ipt.check_output(['iptables', '-L', 'FORWARD', '-n', '-v', '-x'], timeout=5, stderr=__import__('subprocess').DEVNULL).decode(errors='replace')
-            _ipt_total = 0
-            for _line in _ipt_out.split('\n'):
-                _parts = _line.split()
-                if len(_parts) >= 3 and 'Chain' not in _line and 'pkts' not in _line and 'target' not in _line:
-                    try:
-                        _ipt_total += int(_parts[1])
-                    except: pass
-            _iptables_gb = round(_ipt_total / 1073741824, 2)
-        except: pass
-        
-        # Get panel cumulative daily data (from traffic.db for the 面板累计 card)
-        _panel_data = []
-        try:
-            _pconn = _sq3.connect('/root/traffic.db')
-            _pc = _pconn.cursor()
-            _pc.execute("SELECT date, total_traffic FROM daily ORDER BY date DESC LIMIT 10")
-            _panel_data = [{"date": r[0], "mb": r[1], "gb": round(r[1]/1024, 1)} for r in _pc.fetchall()]
-            _pconn.close()
-        except: pass
-        
-        # Get audit snapshots (from audit.db snap table)
-        _audit_snapshots = []
-        try:
-            _aconn = _sq3.connect('/root/audit/audit.db')
-            _ac = _aconn.cursor()
-            _ac.execute('SELECT ts, source, total_bytes FROM snap ORDER BY ts DESC LIMIT 20')
-            _audit_snapshots = [{'ts': r[0], 'source': r[1], 'gb': round(r[2]/1073741824, 2)} for r in _ac.fetchall()]
-            _aconn.close()
-        except: pass
-        
-        # Get daily deltas (from audit.db daily_delta table — precomputed by verify.py)
-        _daily_deltas = []
-        try:
-            _dconn = _sq3.connect('/root/audit/audit.db')
-            _dc = _dconn.cursor()
-            _dc.execute('SELECT date, haproxy_bytes, iptables_bytes, panel_mb, eth0_rx, eth0_tx FROM daily_delta ORDER BY date DESC LIMIT 30')
-            _daily_deltas = [{'date': r[0], 'haproxy_gb': r[1], 'iptables_gb': r[2],
-                             'panel_gb': round(r[3]/1024, 2) if r[3] else 0,
-                             'eth0_rx_gb': r[4], 'eth0_tx_gb': r[5],
-                             'eth0_total_gb': round(r[4] + r[5], 2)} for r in _dc.fetchall()]
-            _dconn.close()
-        except: pass
-        
-        return render_template('audit.html',
-            haproxy_gb=_hap_gb,
-            iptables_gb=_iptables_gb,
-            reset_time=_reset_time,
-            eth0_rx_gb=round(_eth_rx/1073741824, 2),
-            eth0_tx_gb=round(_eth_tx/1073741824, 2),
-            eth0_total_gb=round(_eth_total/1073741824, 2),
-            panel_data=_panel_data,
-            audit_snapshots=_audit_snapshots,
-            daily_deltas=_daily_deltas)
-    except Exception as _e:
-        log.error(f"Audit error: {_e}")
-        return render_template('audit.html', error=str(_e))
 
 
 if __name__ == '__main__':
