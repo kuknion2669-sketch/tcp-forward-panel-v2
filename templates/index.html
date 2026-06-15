@@ -496,7 +496,7 @@ function submitEdit(e){
   var form=document.getElementById('editForm')
   var data=new FormData(form)
   fetch('/edit/'+idx,{method:'POST',body:data}).then(function(r){
-    if(r.redirected)window.location.reload()
+    if(r.redirected)window.location.href=r.url
     else{btn.disabled=false;btn.textContent=orig;closeModal()}
   }).catch(function(){window.location.reload()})
   return false
