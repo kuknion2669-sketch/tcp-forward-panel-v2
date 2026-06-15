@@ -194,13 +194,18 @@ def add():
     if not port.isdigit() or (local and not local.isdigit()):
         return redirect(request.referrer or '/')
     if local and is_sensitive_port(local):
-        return redirect(request.referrer or '/')
+        free = haproxy.free_port()
+        return redirect(request.referrer + '?msg=sensitive_port&free=' + free)
     if not local:
         local = haproxy.free_port()
     else:
         existing = [d['local'] for d in db.load() if d.get('local')]
         if local in existing:
+            if is_sensitive_port(local):
+                local = haproxy.free_port()
+                return redirect(request.referrer + "?msg=sensitive_port")
             local = haproxy.free_port()
+            return redirect(request.referrer + "?msg=port_taken&free=" + local)
     expire = haproxy.parse_expire(request.form.get('expire', '').strip())
     quota_raw = request.form.get('quota', '').strip()
     quota = 1.0 if quota_raw in ('', '0') else float(quota_raw) if quota_raw else 1.0
@@ -315,10 +320,12 @@ def edit(idx):
         if not new_local.isdigit() or not new_port.isdigit():
             return redirect(request.referrer or '/')
         if new_local != old.get("local", "") and is_sensitive_port(new_local):
-            return redirect(request.referrer or '/')
+            free = haproxy.free_port()
+            return redirect("/?ecode=sensitive&free=" + free)
         for oi, o in enumerate(data):
             if oi != idx and o.get('local') == new_local:
-                return redirect(request.referrer or '/')
+                free = haproxy.free_port()
+                return redirect("/?ecode=occupied&free=" + free)
         ne = request.form.get('expire', '').strip()
         expire = haproxy.parse_expire(ne)
         new_note = request.form.get('note', '').strip()
