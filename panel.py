@@ -65,6 +65,15 @@ def detect_group(item):
     m = re.match(r'^([A-Za-z]+)', name)
     if m: return GROUP_LABELS.get(m.group(1).upper(), m.group(1).upper())
     return "📦 其他"
+
+SENSITIVE_PORT_MIN = 1024
+
+def is_sensitive_port(port_str):
+    try:
+        return int(port_str) < SENSITIVE_PORT_MIN
+    except (ValueError, TypeError):
+        return False
+
 def enrich_item(item, idx):
     i = dict(item)
     i['_idx'] = idx
@@ -184,6 +193,8 @@ def add():
         return redirect(request.referrer or '/')
     if not port.isdigit() or (local and not local.isdigit()):
         return redirect(request.referrer or '/')
+    if local and is_sensitive_port(local):
+        return redirect(request.referrer or '/')
     if not local:
         local = haproxy.free_port()
     else:
@@ -220,6 +231,7 @@ def batch_add():
         qp = parts[5].strip() if len(parts) > 5 else ""
         if not name or not ip or not rport or not rport.isdigit(): continue
         if local and not local.isdigit(): continue
+        if local and is_sensitive_port(local): continue
         if not local: local = haproxy.free_port()
         quota = 10.0 if qp in ('', '0') else float(qp) if qp else 10.0
         expire = haproxy.parse_expire(ep)
@@ -301,6 +313,8 @@ def edit(idx):
         if not new_name or not new_ip or not new_port:
             return redirect(request.referrer or '/')
         if not new_local.isdigit() or not new_port.isdigit():
+            return redirect(request.referrer or '/')
+        if is_sensitive_port(new_local):
             return redirect(request.referrer or '/')
         for oi, o in enumerate(data):
             if oi != idx and o.get('local') == new_local:
@@ -465,6 +479,8 @@ def api_v3_add():
     data = db.load()
     if not local or not local.isdigit():
         local = haproxy.free_port()
+    elif is_sensitive_port(local):
+        return jsonify({"error": "sensitive port"}), 400
     else:
         existing = [d["local"] for d in data if d.get("local")]
         if local in existing: local = haproxy.free_port()
