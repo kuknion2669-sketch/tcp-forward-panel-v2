@@ -175,7 +175,7 @@ class HAProxyCtl:
         """Generate HAProxy config and hot-reload"""
         lines = [
             "global",
-            "    daemon",
+            "#    daemon",
             "    maxconn 4096",
             f"    stats socket {self.sock} mode 600 level admin",
             "    tune.bufsize 65536",
