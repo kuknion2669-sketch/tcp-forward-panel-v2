@@ -53,7 +53,7 @@ Wants=network-online.target
 Type=simple
 Environment="CONFIG=/etc/haproxy/haproxy.cfg" "PIDFILE=/run/haproxy.pid"
 ExecStartPre=/usr/sbin/haproxy -c -f $CONFIG -q
-ExecStart=/usr/sbin/haproxy -f $CONFIG -p $PIDFILE -D
+ExecStart=/usr/sbin/haproxy -f $CONFIG -p $PIDFILE
 ExecReload=/usr/sbin/haproxy -c -f $CONFIG -q
 ExecReload=/usr/sbin/haproxy -f $CONFIG -p $PIDFILE -sf $(cat $PIDFILE 2>/dev/null)
 Restart=always
