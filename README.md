@@ -136,3 +136,41 @@ WantedBy=multi-user.target
 ## License
 
 MIT
+
+
+## 📋 HAProxy 配置注意事项
+
+面板依赖 HAProxy 作为转发引擎。部署后请确认 systemd 单元文件正确：
+
+```bash
+# 正确的配置 (/lib/systemd/system/haproxy.service):
+#   Type=simple
+#   KillMode=process
+#   ExecStart=/usr/sbin/haproxy -f $CONFIG -p $PIDFILE
+#   (无 -D 参数，无 daemon 模式)
+```
+
+> **常见问题**: 如果 HAProxy 进程数量异常增多（>2），说明 Type/KillMode 配置错误。
+> 请运行 `systemctl cat haproxy` 检查，然后重新执行 `install.sh` 或手动修正。
+
+### 故障排查
+
+```bash
+# 检查 HAProxy 进程数量
+ps aux | grep -c "[h]aproxy"
+
+# 检查全部后端状态
+echo "show stat" | socat /run/haproxy.sock stdio | awk -F, '{print $1,$2,$18,$37,$39}' | column -t
+
+# 检查端口是否真正在监听
+netstat -tlnp | grep haproxy
+```
+
+## 🔄 更新日志
+
+### 2026-06-18
+- **fix**: HAProxy 配置中去掉 `daemon` 模式，改用 `Type=simple` 前台运行
+- **fix**: `KillMode=mixed` → `KillMode=process`，防止重启时误杀子进程
+- **fix**: `haproxy_ctl.py` reload 改用 `systemctl reload`（原 `kill -USR1` 会导致 HAProxy 软关闭）
+- **fix**: 新增 reload 后端口验证，确保每个规则端口真正 LISTEN
+- **fix**: 写配置前先 `haproxy -c` 校验，防止重复定义等错误写入磁盘

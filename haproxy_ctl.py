@@ -1,4 +1,5 @@
-"""HAProxy control - socket management, config generation, reload"""
+"""HAProxy control - socket management, config generation, reload, validation"""
+
 import socket
 import subprocess
 import os
@@ -55,7 +56,9 @@ class HAProxyCtl:
     def get_backend_stats(self):
         """Get per-backend bin/bout, returns dict of port -> {bin, bout}"""
         try:
-            raw = subprocess.getoutput(f"echo 'show stat' | socat {self.sock} stdio 2>/dev/null")
+            raw = subprocess.getoutput(
+                f"echo 'show stat' | socat {self.sock} stdio 2>/dev/null"
+            )
             stats = {}
             for line in raw.strip().split('\n')[1:]:
                 parts = line.split(',')
@@ -76,7 +79,7 @@ class HAProxyCtl:
                         'bout': int(parts[9] or 0)
                     }
                 except Exception:
-                    pass  # int() conversion failure, skip
+                    pass
             return stats
         except Exception as e:
             log.warning(f"get_backend_stats failed: {e}")
@@ -127,7 +130,10 @@ class HAProxyCtl:
 
     def is_listening(self, port):
         try:
-            return 'LISTEN' in subprocess.getoutput(f'netstat -tlnp 2>/dev/null | grep :{port}')
+            out = subprocess.getoutput(
+                f'netstat -tlnp 2>/dev/null | grep -w {port}'
+            )
+            return 'LISTEN' in out
         except:
             return False
 
@@ -165,14 +171,22 @@ class HAProxyCtl:
                 try:
                     return str(datetime.strptime(t, fmt).timestamp())
                 except Exception:
-                    pass  # int() conversion failure, skip
+                    pass
         except Exception:
             pass
         from datetime import datetime, timedelta
         return str((datetime.now() + timedelta(days=30)).timestamp())
 
     def reload(self, data):
-        """Generate HAProxy config and hot-reload"""
+        """
+        Generate HAProxy config from database rules and hot-reload.
+        
+        Fixes:
+        - Uses systemctl reload (not kill -USR1 which soft-stops HAProxy)
+        - Validates each port is actually listening after reload
+        - Catches duplicate frontend/backend name errors
+        - Falls back to full restart if reload fails
+        """
         lines = [
             "global",
             "    maxconn 4096",
@@ -188,6 +202,10 @@ class HAProxyCtl:
             "    option tcp-smart-accept",
             "",
         ]
+        
+        # Track which ports should be active after reload
+        expected_ports = set()
+        
         for item in data:
             if not item.get('enable', True):
                 continue
@@ -201,6 +219,7 @@ class HAProxyCtl:
             prt = item.get('port', '')
             if not loc or not ip or not prt:
                 continue
+            expected_ports.add(loc)
             lines.append(f"frontend fe_{loc}")
             lines.append(f"    bind 0.0.0.0:{loc}")
             lines.append("    mode tcp")
@@ -212,34 +231,71 @@ class HAProxyCtl:
             lines.append("")
 
         cfg = '\n'.join(lines) + '\n'
+        
+        # Validate config before writing
+        try:
+            r = subprocess.run(
+                ['haproxy', '-c', '-f', '/dev/stdin'],
+                input=cfg, capture_output=True, text=True, timeout=10
+            )
+            if r.returncode != 0:
+                log.error(f"Config validation FAILED: {r.stderr[:500]}")
+                return False
+        except Exception as e:
+            log.error(f"Config validation error: {e}")
+            return False
+
+        # Write valid config
         with open(self.config_file, 'w') as f:
             f.write(cfg)
 
-        # Graceful reload via SIGHUP (preserves connections)
+        # Reload via systemd (correct approach: uses ExecReload with -sf)
         try:
-            pid = subprocess.getoutput('cat /run/haproxy.pid 2>/dev/null').strip()
-            if pid and pid.isdigit():
-                subprocess.run(f'kill -USR1 {pid}', shell=True, capture_output=True, timeout=10)
-                # Wait for socket to be ready
-                sock_ok = False
-                for _ in range(10):
-                    try:
-                        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-                        s.settimeout(1)
-                        s.connect(self.sock)
-                        s.close()
-                        sock_ok = True
-                        break
-                    except Exception:
-                        time.sleep(0.5)
-                if not sock_ok:
-                    log.warning("Socket not ready after SIGHUP, falling back to restart")
-                    subprocess.run('systemctl restart haproxy', shell=True, capture_output=True, timeout=10)
-            else:
-                subprocess.run('systemctl restart haproxy', shell=True, capture_output=True, timeout=10)
+            r = subprocess.run(
+                'systemctl reload haproxy',
+                shell=True, capture_output=True, timeout=15
+            )
+            if r.returncode != 0:
+                log.warning(f"systemctl reload failed: {r.stderr[:300]}, trying restart")
+                subprocess.run(
+                    'systemctl restart haproxy',
+                    shell=True, capture_output=True, timeout=15
+                )
         except Exception as e:
-            log.error(f"Reload failed: {e}")
-            subprocess.run('systemctl restart haproxy', shell=True, capture_output=True, timeout=10)
+            log.error(f"Reload error: {e}")
+            subprocess.run(
+                'systemctl restart haproxy',
+                shell=True, capture_output=True, timeout=15
+            )
+
+        # Wait for HAProxy to settle
+        time.sleep(2)
+
+        # Validate: check every expected port is actually listening
+        missing_ports = []
+        for port in sorted(expected_ports):
+            if not self.is_listening(port):
+                missing_ports.append(port)
+
+        if missing_ports:
+            log.error(
+                f"Reload validation FAILED: ports not listening: {missing_ports}"
+            )
+            # Try one more restart
+            subprocess.run(
+                'systemctl restart haproxy',
+                shell=True, capture_output=True, timeout=15
+            )
+            time.sleep(2)
+            still_missing = [
+                p for p in missing_ports if not self.is_listening(p)
+            ]
+            if still_missing:
+                log.critical(
+                    f"Ports still missing after restart: {still_missing}. "
+                    f"Config may have duplicates or conflicts."
+                )
+                return False
 
         # Disable exhausted nodes
         try:
@@ -253,10 +309,15 @@ class HAProxyCtl:
                 if not lo:
                     continue
                 if self.is_expired(it.get('expire', '')) or \
-                   (it.get('quota', 0) > 0 and it.get('used', 0) >= it.get('quota', 0) * 1024):
-                    s.sendall(f"shutdown sessions server be_{lo}/s{lo}\n".encode())
+                   (it.get('quota', 0) > 0 and
+                    it.get('used', 0) >= it.get('quota', 0) * 1024):
+                    s.sendall(
+                        f"shutdown sessions server be_{lo}/s{lo}\n".encode()
+                    )
             s.close()
         except Exception:
             pass
 
-        log.info(f"HAProxy reloaded: {len([d for d in data if d.get('enable', True)])} active rules")
+        active = len([d for d in data if d.get('enable', True)])
+        log.info(f"HAProxy reloaded: {active} active rules, all ports verified")
+        return True
