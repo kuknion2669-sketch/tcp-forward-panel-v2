@@ -30,6 +30,23 @@ apt update -y && apt upgrade -y
 info "安装依赖包: python3, pip, haproxy, socat, git..."
 apt install -y python3 python3-pip haproxy socat git net-tools
 
+# 检测 Debian 版本
+DEBIAN_VERSION=$(cat /etc/debian_version | cut -d. -f1)
+USE_VENV=false
+[[ "$DEBIAN_VERSION" == "12" ]] && USE_VENV=true
+
+if $USE_VENV; then
+    info "检测到 Debian 12，使用虚拟环境安装 Python 包..."
+    apt install -y python3-venv python3-full
+    python3 -m venv /root/tcp-panel-v2/venv
+    source /root/tcp-panel-v2/venv/bin/activate
+    pip install flask
+else
+    info "安装 Flask..."
+    pip3 install flask
+fi
+
+
 # ── 安装 Python 包 ──
 info "安装 Flask..."
 pip3 install flask
@@ -132,7 +149,7 @@ db.close()
 # ── 启动面板 ──
 info "启动面板..."
 cd /root/tcp-panel-v2
-nohup python3 panel.py > /root/panel-v2.log 2>&1 &
+nohup /root/tcp-panel-v2/venv/bin/python panel.py > /root/panel-v2.log 2>&1 &
 sleep 3
 
 # ── 清理 ──
