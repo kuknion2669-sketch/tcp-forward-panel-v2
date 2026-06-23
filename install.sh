@@ -150,7 +150,7 @@ sleep 3
 rm -f /root/check_*.py /root/patch_*.py /root/fix_*.py /root/migrate_*.py /root/verify_*.py 2>/dev/null || true
 
 # ── 验证 ──
-PANEL_PID=$(netstat -tlnp 2>/dev/null | grep "$PANEL_PORT.*python" | grep -oP '\d+(?=/python\w*|/venv/bin/python)' || true)
+PANEL_PID=$(netstat -tlnp 2>/dev/null | grep "$PANEL_PORT.*python" | grep -oP '\d+(?=/\S*?python)' || true)
 if [[ -n "$PANEL_PID" ]]; then
   ok "面板已启动 (PID $PANEL_PID)"
   echo ""
