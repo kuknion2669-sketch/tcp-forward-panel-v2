@@ -1,60 +1,60 @@
 #!/bin/bash
 set -e
 
-# 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲
-# TCP Forward Panel v14 鈥斺€?涓€閿畨瑁呰剼鏈?# 閫傜敤浜?Debian 11/12 (KVM)
-# 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲
+# ═══════════════════════════════════════════════════
+# TCP Forward Panel v14 — 一键安装脚本
+# 适用于 Debian 11/12 (KVM)
+# ═══════════════════════════════════════════════════
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; CYAN='\033[0;36m'; NC='\033[0m'
 info()  { echo -e "${CYAN}[INFO]${NC} $1"; }
 ok()    { echo -e "${GREEN}[OK]${NC} $1"; }
 err()   { echo -e "${RED}[ERR]${NC} $1"; exit 1; }
 
-# 鈺斺晲鈺?Root check 鈺愨晲鈺愨晽
-[[ $EUID -eq 0 ]] || err "璇蜂互 root 鐢ㄦ埛杩愯"
+# ── Root check ──
+[[ $EUID -eq 0 ]] || err "请以 root 用户运行"
 
-# 鈺斺晲鈺?OS check 鈺愨晲鈺愨晽
-[[ -f /etc/debian_version ]] || err "浠呮敮鎸?Debian 鎿嶄綔绯荤粺"
+# ── OS check ──
+[[ -f /etc/debian_version ]] || err "仅支持 Debian 系列系统"
 
-# 鈺斺晲鈺?璇诲彇鍙橀噺 鈺愨晲鈺愨晽
+# ── 获取参数 ──
 ADMIN_USER="${ADMIN_USER:-admin}"
 ADMIN_PASS="${ADMIN_PASS:-admin123}"
 PANEL_PORT="${PANEL_PORT:-8080}"
 
-# 鈺斺晲鈺?鏇存柊绯荤粺 鈺愨晲鈺愨晽
-info "鏇存柊绯荤粺..."
+# ── 更新系统 ──
+info "更新系统..."
 apt update -y && apt upgrade -y
 
-# 鈺斺晲鈺?瀹夎渚濊禆 鈺愨晲鈺愨晽
-info "瀹夎渚濊禆锛歱ython3, pip, haproxy, socat, git..."
+# ── 安装依赖 ──
+info "安装依赖包: python3, pip, haproxy, socat, git..."
 apt install -y python3 python3-pip haproxy socat git net-tools
 
-# 妫€娴?Debian 鐗堟湰
-DEBIAN_VERSION=$(cat /etc/debian_version | cut -d. -f1)
-USE_VENV=false
-[[ "$DEBIAN_VERSION" == "12" ]] && USE_VENV=true
-
-if $USE_VENV; then
-    info "妫€娴嬪埌 Debian 12锛屽皢浣跨敤 venv 闅旂 Python 鐜..."
-    apt install -y python3-venv python3-full
-    python3 -m venv /root/tcp-panel-v2/venv
-    source /root/tcp-panel-v2/venv/bin/activate
-    pip install flask
-else
-    info "瀹夎 Flask..."
-    pip3 install flask
-fi
-
-
-# 鈺斺晲鈺?涓嬭浇椤圭洰 鈺愨晲鈺愨晽
-info "涓嬭浇椤圭洰婧愪唬鐮?.."
+# ── 克隆仓库 ──
+info "克隆面板代码..."
 cd /root
 rm -rf tcp-panel-v2 2>/dev/null || true
 git clone https://github.com/kuknion2669-sketch/tcp-forward-panel-v2.git tcp-panel-v2
 cd tcp-panel-v2
 
-# 鈺斺晲鈺?閰嶇疆 HAProxy systemd 鏈嶅姟 鈺愨晲鈺愨晽
-info "閰嶇疆 HAProxy 绯荤粺鏈嶅姟..."
+# ── 检测 Debian 版本，确定 Python 环境 ──
+DEBIAN_VERSION=$(cat /etc/debian_version | cut -d. -f1)
+PYTHON_CMD="python3"
+
+if [[ "$DEBIAN_VERSION" == "12" ]]; then
+    info "检测到 Debian 12，使用虚拟环境安装 Python 包..."
+    apt install -y python3-venv python3-full
+    python3 -m venv /root/tcp-panel-v2/venv
+    source /root/tcp-panel-v2/venv/bin/activate
+    pip install flask
+    PYTHON_CMD="/root/tcp-panel-v2/venv/bin/python"
+else
+    info "安装 Flask..."
+    pip3 install flask
+fi
+
+# ── 配置 HAProxy systemd 服务 ──
+info "配置 HAProxy 服务..."
 cat > /lib/systemd/system/haproxy.service << 'SERVICE'
 [Unit]
 Description=HAProxy Load Balancer
@@ -81,9 +81,9 @@ SERVICE
 systemctl daemon-reload
 systemctl enable haproxy
 
-# 鈺斺晲鈺?绯荤粺浼樺寲 鈺愨晲鈺愨晽
-info "绯荤粺浼樺寲..."
-# BBR + TCP 鍔犻€?modprobe tcp_bbr 2>/dev/null || true
+# ── 系统调优 ──
+info "系统调优..."
+modprobe tcp_bbr 2>/dev/null || true
 if ! grep -q 'tcp_bbr' /etc/modules-load.d/modules.conf 2>/dev/null; then
   echo tcp_bbr >> /etc/modules-load.d/modules.conf 2>/dev/null || true
 fi
@@ -99,8 +99,9 @@ net.ipv4.ip_local_port_range = 1024 65535
 SYSCTL
 sysctl -p /etc/sysctl.d/99-tcp-forward.conf 2>/dev/null || true
 
-# 鈺斺晲鈺?鍒涘缓鏁版嵁搴擄紙鍐呭祵鑴氭湰锛夆晹鈺愨晲鈺?info "鍒濆鍖栨暟鎹簱..."
-python3 -c "
+# ── 创建数据库（空表结构）──
+info "初始化数据库..."
+$PYTHON_CMD -c "
 import sqlite3, json, hashlib
 db = sqlite3.connect('/root/traffic.db')
 c = db.cursor()
@@ -139,25 +140,25 @@ db.commit()
 db.close()
 "
 
-# 鈺斺晲鈺?鍚姩闈㈡澘 鈺斺晲鈺愨晽
-info "鍚姩闈㈡澘..."
+# ── 启动面板 ──
+info "启动面板..."
 cd /root/tcp-panel-v2
-nohup /root/tcp-panel-v2/venv/bin/python panel.py > /root/panel-v2.log 2>&1 &
+nohup $PYTHON_CMD panel.py > /root/panel-v2.log 2>&1 &
 sleep 3
 
-# 鈺斺晲鈺?娓呯悊 鈺斺晲鈺愨晽
+# ── 清理 ──
 rm -f /root/check_*.py /root/patch_*.py /root/fix_*.py /root/migrate_*.py /root/verify_*.py 2>/dev/null || true
 
-# 鈺斺晲鈺?楠岃瘉 鈺斺晲鈺愨晽
-PANEL_PID=$(netstat -tlnp 2>/dev/null | grep "$PANEL_PORT.*python" | grep -oP '\d+(?=/python\d*|/venv/bin/python)' || true)
+# ── 验证 ──
+PANEL_PID=$(netstat -tlnp 2>/dev/null | grep "$PANEL_PORT.*python" | grep -oP '\d+(?=/python\w*|/venv/bin/python)' || true)
 if [[ -n "$PANEL_PID" ]]; then
-  ok "闈㈡澘宸插惎鍔?(PID $PANEL_PID)"
+  ok "面板已启动 (PID $PANEL_PID)"
   echo ""
-  echo -e "  ${CYAN}闈㈡澘鍦板潃锛?{NC}  http://$(curl -s ifconfig.me 2>/dev/null || hostname -I | awk '{print $1}'):$PANEL_PORT"
-  echo -e "  ${CYAN}绠＄悊鍛樿处鍙凤細${NC}  $ADMIN_USER"
-  echo -e "  ${CYAN}绠＄悊鍛樺瘑鐮侊細${NC}  $ADMIN_PASS"
+  echo -e "  ${CYAN}面板地址:${NC}  http://$(curl -s ifconfig.me 2>/dev/null || hostname -I | awk '{print $1}'):$PANEL_PORT"
+  echo -e "  ${CYAN}登录账号:${NC}  $ADMIN_USER"
+  echo -e "  ${CYAN}登录密码:${NC}  $ADMIN_PASS"
   echo ""
-  echo -e "  ${GREEN}瀹夎鎴愬姛锛?{NC}"
+  echo -e "  ${GREEN}安装完成！${NC}"
 else
-  err "闈㈡澘鍚姩澶辫触锛岃鏌ョ湅 /root/panel-v2.log"
+  err "面板启动失败，请检查 /root/panel-v2.log"
 fi
