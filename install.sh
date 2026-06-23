@@ -47,10 +47,6 @@ else
 fi
 
 
-# ── 安装 Python 包 ──
-info "安装 Flask..."
-pip3 install flask
-
 # ── 克隆仓库 ──
 info "克隆面板代码..."
 cd /root
