@@ -11,6 +11,43 @@ info()  { echo -e "${CYAN}[INFO]${NC} $1"; }
 ok()    { echo -e "${GREEN}[OK]${NC} $1"; }
 err()   { echo -e "${RED}[ERR]${NC} $1"; exit 1; }
 
+# ── apt 锁等待 ──
+# 解决 "Could not get lock" 冲突（后台自动更新、其他进程等）
+# 最多等 120 秒，超时则强制杀锁
+wait_apt_lock() {
+  local timeout=120
+  local waited=0
+  local locks=("/var/lib/dpkg/lock-frontend" "/var/lib/dpkg/lock" "/var/lib/apt/lists/lock" "/var/cache/apt/archives/lock")
+
+  while [ $waited -lt $timeout ]; do
+    local locked=0
+    for lock in "${locks[@]}"; do
+      if fuser "$lock" &>/dev/null 2>&1; then
+        locked=1
+        break
+      fi
+    done
+
+    if [ "$locked" -eq 0 ]; then
+      return 0
+    fi
+
+    if [ $waited -eq 0 ]; then
+      info "apt 锁被占用，等待释放..."
+    fi
+    sleep 3
+    waited=$((waited + 3))
+  done
+
+  # 超时 — 强制杀锁
+  warn "apt 锁等待超时 ($timeout 秒)，强制清理..."
+  for lock in "${locks[@]}"; do
+    fuser -k "$lock" 2>/dev/null || true
+  done
+  rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/lib/apt/lists/lock /var/cache/apt/archives/lock 2>/dev/null || true
+  dpkg --configure -a 2>/dev/null || true
+}
+
 # ── Root check ──
 [[ $EUID -eq 0 ]] || err "请以 root 用户运行"
 
@@ -23,10 +60,12 @@ ADMIN_PASS="${ADMIN_PASS:-admin123}"
 PANEL_PORT="${PANEL_PORT:-8080}"
 
 # ── 更新系统 ──
+wait_apt_lock
 info "更新系统..."
 apt update -y && apt upgrade -y
 
 # ── 安装依赖 ──
+wait_apt_lock
 info "安装依赖包: python3, pip, haproxy, socat, git..."
 apt install -y python3 python3-pip haproxy socat git net-tools
 
@@ -43,6 +82,7 @@ PYTHON_CMD="python3"
 
 if [[ "$DEBIAN_VERSION" == "12" ]]; then
     info "检测到 Debian 12，使用虚拟环境安装 Python 包..."
+    wait_apt_lock
     apt install -y python3-venv python3-full
     python3 -m venv /root/tcp-panel-v2/venv
     source /root/tcp-panel-v2/venv/bin/activate
