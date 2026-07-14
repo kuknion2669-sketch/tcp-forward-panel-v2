@@ -220,6 +220,7 @@ def add():
     haproxy.reload(data)
     log.info(f"Added rule: {name} ({local} -> {ip}:{port})")
     db.log_event(local, name, "add", f"add: {local} -> {ip}:{port}")
+    api_v3_reload()
     return redirect(request.referrer or '/')
 
 @app.route('/batch_add', methods=['POST'])
@@ -265,6 +266,7 @@ def delete(idx):
         haproxy.reload(data)
         log.info(f"Deleted rule #{idx}: {name}")
     db.log_event(local, name, "delete", f"delete: {local}")
+    api_v3_reload()
     return jsonify({'ok': ok})
 
 @app.route('/check/<int:idx>')
@@ -343,6 +345,7 @@ def edit(idx):
         db.log_event(new_local, new_name, "edit", f"edit: {new_local}")
         if auto_assigned:
             return redirect("/?ecode=" + auto_assigned + "&free=" + new_local)
+        api_v3_reload()
         return redirect(request.referrer or '/')
     exp_dt = ''
     if item.get('expire'):
@@ -401,6 +404,7 @@ def api_toggle(local):
                 log.warning(f"Socket toggle failed for {local}: {e}, falling back to reload")
                 haproxy.reload(data)
             return jsonify({'ok': True, 'enable': enabled})
+    api_v3_reload()
     return jsonify({'ok': False})
 
 @app.route('/backup')
