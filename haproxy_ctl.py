@@ -181,13 +181,18 @@ class HAProxyCtl:
         from datetime import datetime, timedelta
         return str((datetime.now() + timedelta(days=30)).timestamp())
 
-    def validate_config(self, haproxy_cfg_path):
-        """Run haproxy -c to check config validity"""
+    def validate_config(self, haproxy_cfg_str):
+        """Write config to temp file, then run haproxy -c to validate"""
+        import tempfile, os
         try:
+            tmp = tempfile.NamedTemporaryFile(mode='w', suffix='.cfg', delete=False)
+            tmp.write(haproxy_cfg_str)
+            tmp.close()
             r = subprocess.run(
-                ['haproxy', '-c', '-f', haproxy_cfg_path],
+                ['haproxy', '-c', '-f', tmp.name],
                 capture_output=True, timeout=10
             )
+            os.unlink(tmp.name)
             if r.returncode == 0:
                 return True, "ok"
             return False, r.stderr.decode().strip()
