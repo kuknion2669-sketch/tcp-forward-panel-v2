@@ -203,7 +203,7 @@ class HAProxyCtl:
         """Generate config, validate, reload via haproxy -sf, verify listening"""
         lines = [
             "global",
-            "    daemon",
+            # daemon removed - systemd manages in foreground
             "    maxconn 4096",
             f"    stats socket {self.sock} mode 600 level admin",
             "    tune.bufsize 65536",
