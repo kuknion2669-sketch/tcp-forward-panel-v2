@@ -399,7 +399,7 @@ def api_toggle(local):
                 s.sendall(cmd.encode())
                 s.close()
                 log.info(f"Toggle {local}: {'enabled' if enabled else 'disabled'} via socket")
-                db.log_event(local, d.get("name",""), "toggle", f"toggle: {local} {status}")
+                db.log_event(local, item.get("name",""), "toggle", f"toggle: {local} {status}")
             except Exception as e:
                 log.warning(f"Socket toggle failed for {local}: {e}, falling back to reload")
                 haproxy.reload(data)
