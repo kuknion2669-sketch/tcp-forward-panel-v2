@@ -95,6 +95,14 @@ fi
 
 # ── 配置 HAProxy systemd 服务 ──
 info "配置 HAProxy 服务..."
+# 生成 HAProxy 优雅重载脚本（systemd 无法直接展开 $(cat ...)，需独立脚本）
+cat > /usr/local/bin/haproxy-reload.sh << 'RELOAD'
+#!/bin/sh
+/usr/sbin/haproxy -c -f /etc/haproxy/haproxy.cfg -q || exit 1
+/usr/sbin/haproxy -f /etc/haproxy/haproxy.cfg -p /run/haproxy.pid -sf "$(cat /run/haproxy.pid 2>/dev/null)" || exit 1
+exit 0
+RELOAD
+chmod +x /usr/local/bin/haproxy-reload.sh
 cat > /lib/systemd/system/haproxy.service << 'SERVICE'
 [Unit]
 Description=HAProxy Load Balancer
@@ -107,7 +115,7 @@ Environment="CONFIG=/etc/haproxy/haproxy.cfg" "PIDFILE=/run/haproxy.pid"
 ExecStartPre=/usr/sbin/haproxy -c -f $CONFIG -q
 ExecStart=/usr/sbin/haproxy -f $CONFIG -p $PIDFILE
 ExecReload=/usr/sbin/haproxy -c -f $CONFIG -q
-ExecReload=/usr/sbin/haproxy -f $CONFIG -p $PIDFILE -sf $(cat $PIDFILE 2>/dev/null)
+ExecReload=/usr/local/bin/haproxy-reload.sh
 Restart=always
 RestartSec=5
 LimitNOFILE=65535
