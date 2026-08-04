@@ -9,7 +9,7 @@
 # 6. Same DB schema → coexists with v13, no node disruption
 
 from flask import Flask, render_template, request, redirect, Response, session, jsonify
-import os, json, time, logging, secrets, socket
+import os, json, time, logging, secrets, socket, threading
 from datetime import datetime, timedelta
 from functools import wraps
 
@@ -36,6 +36,71 @@ haproxy = HAProxyCtl(cfg)
 checker = CheckManager(db)
 stats = StatsCollector(db, haproxy)
 stats.load_last_state()
+
+# ── Real-time node health cache & background jobs ──
+CHECK_CACHE = {}
+CHECK_CACHE_LOCK = threading.Lock()
+
+def _cache_status(local):
+    with CHECK_CACHE_LOCK:
+        e = CHECK_CACHE.get(local)
+    if e and time.time() - e['ts'] < 90:
+        return e['ok']
+    return None
+
+def _refresh_check_cache(data, results):
+    new_cache = {}
+    for k, res in results.items():
+        try:
+            idx = int(k)
+            lo = data[idx].get('local')
+            if lo:
+                new_cache[lo] = {'ok': bool(res.get('ok')), 'ts': time.time()}
+        except Exception:
+            pass
+    with CHECK_CACHE_LOCK:
+        CHECK_CACHE.update(new_cache)
+
+def _enforce_auto_disable(data):
+    """Auto-disable expired / quota-exhausted nodes in HAProxy AND in DB."""
+    for item in data:
+        if not item.get('enable', True):
+            continue
+        lo = item.get('local', '')
+        if not lo:
+            continue
+        q = item.get('quota', 0)
+        exhausted = q > 0 and item.get('used', 0) >= q * 1024
+        expired = haproxy.is_expired(item.get('expire', ''))
+        if not (exhausted or expired):
+            continue
+        reason = 'quota exhausted' if exhausted else 'expired'
+        try:
+            s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            s.settimeout(3)
+            s.connect(haproxy.sock)
+            s.sendall(f"disable server be_{lo}/s{lo}\n".encode())
+            s.sendall(f"shutdown sessions server be_{lo}/s{lo}\n".encode())
+            s.close()
+        except Exception as e:
+            log.warning(f"Auto-disable socket {lo}: {e}")
+        db.set_enable(lo, False)
+        db.log_event(lo, item.get('name', ''), "auto_disable", reason)
+        log.info(f"Auto-disabled {lo} ({item.get('name','')}): {reason}")
+
+def _background_loop():
+    while True:
+        time.sleep(30)
+        try:
+            data = db.load()
+            results = checker.check_all(data)
+            _refresh_check_cache(data, results)
+            _enforce_auto_disable(data)
+        except Exception as e:
+            log.warning(f"background loop error: {e}")
+
+if os.environ.get('PANEL_BG_DISABLED') != '1':
+    threading.Thread(target=_background_loop, daemon=True, name='panel-bg').start()
 
 GROUP_LABELS = {
     "美区": "🇺🇸 美区", "香港": "🇭🇰 香港", "泰国": "🇹🇭 泰国",
@@ -77,7 +142,8 @@ def is_sensitive_port(port_str):
 def enrich_item(item, idx):
     i = dict(item)
     i['_idx'] = idx
-    i['online'] = haproxy.is_listening(i['local'])
+    cached = _cache_status(i['local'])
+    i['online'] = cached if cached is not None else haproxy.is_listening(i['local'])
     i['expired'] = haproxy.is_expired(i.get('expire', ''))
     i['expire_time_display'] = ''
     if i.get('expire'):
@@ -251,7 +317,7 @@ def batch_add():
     db.save(data)
     haproxy.reload(data)
     log.info(f"Batch added {len(rules)} rules")
-    db.log_event("", "", "batch_add", f"batch add: {len(new_rules)} rules")
+    db.log_event("", "", "batch_add", f"batch add: {len(rules)} rules")
     return redirect(request.referrer or '/')
 
 @app.route('/del/<int:idx>')
@@ -259,8 +325,11 @@ def batch_add():
 def delete(idx):
     data = db.load()
     ok = 0 <= idx < len(data)
+    local = ''
+    name = ''
     if ok:
         name = data[idx].get('name', '')
+        local = data[idx].get('local', '')
         del data[idx]
         db.save(data)
         haproxy.reload(data)
@@ -281,6 +350,7 @@ def check_node(idx):
 def check_all():
     data = db.load()
     results = checker.check_all(data)
+    _refresh_check_cache(data, results)
     return jsonify({'ok': True, 'results': results})
 
 @app.route('/haproxy')
@@ -357,14 +427,20 @@ def edit(idx):
 @login_required
 def reset_quota(idx):
     data = db.load()
+    local = ''
+    rname = ''
     if 0 <= idx < len(data):
+        local = data[idx].get('local', '')
+        rname = data[idx].get('name', '')
         data[idx]['used'] = 0
         data[idx]['used_in'] = 0
         data[idx]['used_out'] = 0
+        data[idx]['enable'] = True
         db.save(data)
-        stats.clear_last(data[idx]['local'])
-        log.info(f"Reset quota for #{idx}: {data[idx].get('name','')}")
-    db.log_event(local, data[idx].get("name",""), "reset_quota", f"reset_quota: {local}")
+        stats.clear_last(local)
+        haproxy.reload(data)
+        log.info(f"Reset quota for #{idx}: {rname}")
+    db.log_event(local, rname, "reset_quota", f"reset_quota: {local}")
     return redirect(request.referrer or '/')
 
 @app.route('/restart/<local>')
@@ -399,7 +475,7 @@ def api_toggle(local):
                 s.sendall(cmd.encode())
                 s.close()
                 log.info(f"Toggle {local}: {'enabled' if enabled else 'disabled'} via socket")
-                db.log_event(local, item.get("name",""), "toggle", f"toggle: {local} {status}")
+                db.log_event(local, item.get("name",""), "toggle", f"toggle: {local} {'enabled' if enabled else 'disabled'}")
             except Exception as e:
                 log.warning(f"Socket toggle failed for {local}: {e}, falling back to reload")
                 haproxy.reload(data)
@@ -461,8 +537,7 @@ def settings():
         cfg_data = db.get_config()
         if restart:
             import subprocess as _sp
-            _sp.Popen("nohup python3 /root/tcp-panel-v2/panel.py >/dev/null 2>&1 &", shell=True)
-            _sp.Popen(f"(sleep 1; kill -9 {os.getpid()}) 2>/dev/null &", shell=True)
+            _sp.Popen("systemctl restart tcp-panel-v2", shell=True)
             return redirect(f'http://{request.host.rsplit(":", 1)[0]}:{np}/login')
     return render_template('settings.html', port=cfg_data.get('panel_port_v2', '8081'),
                           username=cfg_data.get('username', 'admin'), msg=msg)

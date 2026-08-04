@@ -86,11 +86,11 @@ if [[ "$DEBIAN_VERSION" == "12" ]]; then
     apt install -y python3-venv python3-full
     python3 -m venv /root/tcp-panel-v2/venv
     source /root/tcp-panel-v2/venv/bin/activate
-    pip install flask
+    pip install flask gunicorn
     PYTHON_CMD="/root/tcp-panel-v2/venv/bin/python"
 else
     info "安装 Flask..."
-    pip3 install flask
+    pip3 install flask gunicorn
 fi
 
 # ── 配置 HAProxy systemd 服务 ──
@@ -99,7 +99,12 @@ info "配置 HAProxy 服务..."
 cat > /usr/local/bin/haproxy-reload.sh << 'RELOAD'
 #!/bin/sh
 /usr/sbin/haproxy -c -f /etc/haproxy/haproxy.cfg -q || exit 1
-/usr/sbin/haproxy -f /etc/haproxy/haproxy.cfg -p /run/haproxy.pid -sf "$(cat /run/haproxy.pid 2>/dev/null)" || exit 1
+OLD_PID=$(systemctl show -p MainPID --value haproxy 2>/dev/null | tr -d ' \n')
+[ -n "$OLD_PID" ] || OLD_PID=$(pgrep -x haproxy | head -1)
+[ -n "$OLD_PID" ] || exit 1
+rm -f /run/haproxy.sock
+/usr/sbin/haproxy -f /etc/haproxy/haproxy.cfg -p /run/haproxy.pid -sf "$OLD_PID" &
+sleep 1
 exit 0
 RELOAD
 chmod +x /usr/local/bin/haproxy-reload.sh
@@ -128,6 +133,26 @@ SERVICE
 
 systemctl daemon-reload
 systemctl enable haproxy
+
+# ── 安装面板辅助脚本与 systemd 服务 ──
+info "安装面板服务与辅助脚本..."
+chmod +x /root/tcp-panel-v2/start_panel.sh /root/tcp-panel-v2/backup.sh \
+         /root/tcp-panel-v2/check_haproxy.sh /root/tcp-panel-v2/upgrade.sh
+# 移除旧的重复服务单元，避免冲突
+for u in tcp-panel.service panel.service; do
+  if [ -e /etc/systemd/system/$u ]; then
+    systemctl disable --now $u 2>/dev/null || true
+    rm -f /etc/systemd/system/$u
+  fi
+done
+sed "s|__PYTHON_CMD__|$PYTHON_CMD|g" /root/tcp-panel-v2/tcp-panel-v2.service > /etc/systemd/system/tcp-panel-v2.service
+cp /root/tcp-panel-v2/panel-backup.service /etc/systemd/system/panel-backup.service
+cp /root/tcp-panel-v2/panel-backup.timer /etc/systemd/system/panel-backup.timer
+cp /root/tcp-panel-v2/haproxy-watchdog.service /etc/systemd/system/haproxy-watchdog.service
+cp /root/tcp-panel-v2/haproxy-watchdog.timer /etc/systemd/system/haproxy-watchdog.timer
+systemctl daemon-reload
+systemctl enable --now tcp-panel-v2
+systemctl enable --now panel-backup.timer haproxy-watchdog.timer
 
 # ── 系统调优 ──
 info "系统调优..."
@@ -190,17 +215,16 @@ db.close()
 
 # ── 启动面板 ──
 info "启动面板..."
-cd /root/tcp-panel-v2
-nohup $PYTHON_CMD panel.py > /root/panel-v2.log 2>&1 &
+systemctl restart tcp-panel-v2
 sleep 3
 
 # ── 清理 ──
 rm -f /root/check_*.py /root/patch_*.py /root/fix_*.py /root/migrate_*.py /root/verify_*.py 2>/dev/null || true
 
 # ── 验证 ──
-PANEL_PID=$(netstat -tlnp 2>/dev/null | grep "$PANEL_PORT.*python" | grep -oP '\d+(?=/\S*?python)' || true)
-if [[ -n "$PANEL_PID" ]]; then
-  ok "面板已启动 (PID $PANEL_PID)"
+PANEL_STATE=$(systemctl is-active tcp-panel-v2 2>/dev/null || true)
+if [[ "$PANEL_STATE" == "active" ]]; then
+  ok "面板已启动 (systemd: tcp-panel-v2)"
   echo ""
   echo -e "  ${CYAN}面板地址:${NC}  http://$(curl -s ifconfig.me 2>/dev/null || hostname -I | awk '{print $1}'):$PANEL_PORT"
   echo -e "  ${CYAN}登录账号:${NC}  $ADMIN_USER"

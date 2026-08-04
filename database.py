@@ -83,6 +83,17 @@ class Database:
             log.error(f"Save failed: {e}")
             return False
 
+    def set_enable(self, local, enable):
+        try:
+            conn = sqlite3.connect(self.db_file)
+            conn.execute("UPDATE rules SET enable=? WHERE local=?", (1 if enable else 0, local))
+            conn.commit()
+            conn.close()
+            return True
+        except Exception as e:
+            log.error(f"Set enable failed: {e}")
+            return False
+
     def log_event(self, port, name, event_type, message=''):
         try:
             conn = sqlite3.connect(self.db_file)

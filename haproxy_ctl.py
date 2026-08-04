@@ -267,8 +267,12 @@ class HAProxyCtl:
         # Reload via haproxy -sf (zero-downtime, preserves connections)
         try:
             pid_raw = subprocess.getoutput(
-                'head -1 /run/haproxy.pid 2>/dev/null'
+                'systemctl show -p MainPID --value haproxy 2>/dev/null'
             ).strip()
+            if not pid_raw.isdigit():
+                pid_raw = subprocess.getoutput(
+                    'pgrep -x haproxy | head -1'
+                ).strip()
             pid = pid_raw.split()[0] if pid_raw else ''
             if pid and pid.isdigit():
                 r = subprocess.run(

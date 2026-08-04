@@ -7,12 +7,13 @@ Wants=haproxy.service
 Type=simple
 User=root
 WorkingDirectory=/root/tcp-panel-v2
-ExecStart=/root/tcp-panel-v2/venv/bin/python /root/tcp-panel-v2/panel.py
-ExecReload=/bin/kill -HUP $MAINPID
+Environment="PANEL_PYTHON=__PYTHON_CMD__"
+ExecStart=/root/tcp-panel-v2/start_panel.sh
 Restart=always
 RestartSec=5
 StandardOutput=append:/root/panel-v2.log
 StandardError=append:/root/panel-v2.log
+LimitNOFILE=65535
 
 [Install]
 WantedBy=multi-user.target

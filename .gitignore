@@ -17,3 +17,9 @@ __pycache__/
 Thumbs.db
 *.bak
 *~
+
+# panel helper scripts (keep tracked)
+!start_panel.sh
+!backup.sh
+!check_haproxy.sh
+!upgrade.sh

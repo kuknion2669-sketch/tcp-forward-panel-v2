@@ -1,0 +1,6 @@
+[Unit]
+Description=HAProxy stale process watchdog
+
+[Service]
+Type=oneshot
+ExecStart=/root/tcp-panel-v2/check_haproxy.sh

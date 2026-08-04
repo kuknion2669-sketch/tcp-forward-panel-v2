@@ -1,0 +1,6 @@
+[Unit]
+Description=TCP Panel Daily Backup
+
+[Service]
+Type=oneshot
+ExecStart=/root/tcp-panel-v2/backup.sh
