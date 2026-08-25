@@ -219,8 +219,8 @@ class HAProxyCtl:
             "defaults",
             "    mode tcp",
             "    timeout connect 5000ms",
-            "    timeout client 50000ms",
-            "    timeout server 50000ms",
+            "    timeout client 1d",
+            "    timeout server 1d",
             "    option tcp-smart-connect",
             "    option tcp-smart-accept",
             "",
@@ -264,68 +264,41 @@ class HAProxyCtl:
         with open(self.config_file, 'w') as f:
             f.write(cfg)
 
-        # Reload via haproxy -sf (zero-downtime, preserves connections)
+        # Reload via haproxy -sf, NON-BLOCKING so the panel never blocks
+        # 15s and never leaves foreground/orphaned processes that time out.
+        # The old master is signalled to drain (-sf); haproxy-watchdog force-
+        # cleans drained/stale processes older than the grace window, so they
+        # can never accumulate (this host previously reached 42 processes).
         try:
             pid_raw = subprocess.getoutput(
                 'systemctl show -p MainPID --value haproxy 2>/dev/null'
             ).strip()
             if not pid_raw.isdigit():
                 pid_raw = subprocess.getoutput(
-                    'pgrep -x haproxy | head -1'
+                    'pgrep -x haproxy | sort -n | tail -1'
                 ).strip()
             pid = pid_raw.split()[0] if pid_raw else ''
             if pid and pid.isdigit():
-                r = subprocess.run(
-                    f'haproxy -f {self.config_file} -p {self.pid_file} -sf {pid}',
-                    shell=True, capture_output=True, timeout=15
+                subprocess.Popen(
+                    'systemctl reload haproxy >/dev/null 2>&1',
+                    shell=True, start_new_session=True,
                 )
-                if r.returncode != 0:
-                    err_msg = r.stderr.decode().strip()
-                    log.warning(
-                        f"haproxy -sf failed (rc={r.returncode}): {err_msg}"
-                    )
-                    log.warning("Falling back to systemctl restart haproxy")
-                    subprocess.run(
-                        'systemctl restart haproxy',
-                        shell=True, capture_output=True, timeout=15
-                    )
-                else:
-                    # Wait for socket to be ready
-                    sock_ok = False
-                    for _ in range(10):
-                        try:
-                            s = socket.socket(
-                                socket.AF_UNIX, socket.SOCK_STREAM
-                            )
-                            s.settimeout(1)
-                            s.connect(self.sock)
-                            s.close()
-                            sock_ok = True
-                            break
-                        except Exception:
-                            time.sleep(0.5)
-                    if not sock_ok:
-                        log.warning(
-                            "Socket not ready after -sf reload, "
-                            "falling back to restart"
-                        )
-                        subprocess.run(
-                            'systemctl restart haproxy',
-                            shell=True, capture_output=True, timeout=15
-                        )
+                log.info(
+                    f"Reload started via systemctl (signalling pid {pid})"
+                )
             else:
                 log.warning(
                     f"Invalid PID '{pid_raw}', falling back to restart"
                 )
-                subprocess.run(
-                    'systemctl restart haproxy',
-                    shell=True, capture_output=True, timeout=15
+                subprocess.Popen(
+                    'systemctl restart haproxy >/dev/null 2>&1',
+                    shell=True, start_new_session=True,
                 )
         except Exception as e:
             log.error(f"Reload failed: {e}")
-            subprocess.run(
-                'systemctl restart haproxy',
-                shell=True, capture_output=True, timeout=15
+            subprocess.Popen(
+                'systemctl restart haproxy >/dev/null 2>&1',
+                shell=True, start_new_session=True,
             )
 
         # Wait for HAProxy to settle
