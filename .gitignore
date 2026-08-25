@@ -24,3 +24,8 @@ Thumbs.db
 !check_haproxy.sh
 !upgrade.sh
 data.db
+
+# runtime db
+traffic.db
+# timestamped backups
+*.bak-*
