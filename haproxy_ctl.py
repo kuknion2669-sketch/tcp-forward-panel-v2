@@ -221,8 +221,6 @@ class HAProxyCtl:
             "    timeout connect 5000ms",
             "    timeout client 1d",
             "    timeout server 1d",
-            "    option tcp-smart-connect",
-            "    option tcp-smart-accept",
             "",
         ]
 
