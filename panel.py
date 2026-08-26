@@ -93,8 +93,12 @@ def _background_loop():
         time.sleep(30)
         try:
             data = db.load()
-            results = checker.check_all(data)
-            _refresh_check_cache(data, results)
+            # Online/offline is now sourced from HAProxy's authoritative
+            # `show stat` UP/DOWN (see enrich_item / server_status_map). The
+            # separate bare-TCP probe was unreliable on flaky backends (it
+            # timed out on nodes that were actively forwarding traffic), so we
+            # no longer run it here. The manual "check" buttons still invoke
+            # checker for on-demand diagnostics.
             _enforce_auto_disable(data)
         except Exception as e:
             log.warning(f"background loop error: {e}")
@@ -139,11 +143,14 @@ def is_sensitive_port(port_str):
     except (ValueError, TypeError):
         return False
 
-def enrich_item(item, idx):
+def enrich_item(item, idx, status_map):
     i = dict(item)
     i['_idx'] = idx
-    cached = _cache_status(i['local'])
-    i['online'] = cached if cached is not None else haproxy.is_listening(i['local'])
+    # Use HAProxy's authoritative per-server status as the online source so
+    # the badge matches what is actually being forwarded. Fall back to the
+    # local-listener check only when HAProxy has no row for this local port
+    # (e.g. a disabled rule that was left out of the config).
+    i['online'] = status_map.get(i['local'], haproxy.is_listening(i['local']))
     i['expired'] = haproxy.is_expired(i.get('expire', ''))
     i['expire_time_display'] = ''
     if i.get('expire'):
@@ -172,7 +179,8 @@ def index():
     stats.update()
     stats.record()
     data = db.load()
-    enriched = [enrich_item(it, i) for i, it in enumerate(data)]
+    status_map = haproxy.server_status_map()
+    enriched = [enrich_item(it, i, status_map) for i, it in enumerate(data)]
     
     total_q = sum(i.get('quota', 0) for i in enriched)
     total_u = sum(i.get('used', 0) for i in enriched)

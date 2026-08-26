@@ -101,6 +101,7 @@ class StatsCollector:
         """Save current traffic snapshot to daily table"""
         today = datetime.now().strftime('%Y-%m-%d')
         data = self.db.load()
+        status_map = self.haproxy.server_status_map()
         total = total_in = total_out = online = 0
 
         for item in data:
@@ -113,7 +114,7 @@ class StatsCollector:
                 total_out += float(item.get('used_out', 0))
             except Exception:
                 pass  # non-critical, skip
-            if self.haproxy.is_listening(p):
+            if status_map.get(p, self.haproxy.is_listening(p)):
                 online += 1
 
         self.db.save_daily(today, round(total, 1), round(total_in, 1),

@@ -18,6 +18,8 @@ class HAProxyCtl:
         self._last_stats = {}
         self._last_update = 0.0
         self._bufsize = 65536
+        self._status_cache = {}
+        self._status_cache_ts = 0.0
 
     def _sock_cmd(self, cmd):
         try:
@@ -106,6 +108,51 @@ class HAProxyCtl:
             return {'ok': True, 'backends': result, 'total': len(result)}
         except Exception as e:
             return {'ok': False, 'error': str(e)}
+
+    def server_status_map(self):
+        """Return {local_port: bool} using HAProxy's authoritative status.
+
+        A node is treated as ONLINE only when HAProxy reports its per-server
+        row status as 'UP' (e.g. 'UP', 'UP 1/3') from `show stat`. This is the
+        same health signal HAProxy uses to route real traffic, so the panel's
+        online/offline badge matches what is actually being forwarded.
+        FRONTEND/BACKEND aggregate rows are skipped; we read the server row.
+
+        Result is cached for a short window so repeated dashboard renders do
+        not hammer the stats socket on every request.
+        """
+        now = time.time()
+        if self._status_cache and now - self._status_cache_ts < 15:
+            return self._status_cache
+
+        raw = self._sock_cmd('show stat')
+        result = {}
+        if raw:
+            lines = raw.strip().split('\n')
+            if len(lines) >= 2:
+                hdr = [h.strip().lstrip('#').strip() for h in lines[0].split(',')]
+                try:
+                    status_idx = hdr.index('status')
+                except ValueError:
+                    status_idx = 17
+                for line in lines[1:]:
+                    parts = line.split(',')
+                    if len(parts) <= status_idx:
+                        continue
+                    pxname = parts[0]
+                    svname = parts[1]
+                    if svname in ('FRONTEND', 'BACKEND'):
+                        continue
+                    if not pxname.startswith('be_'):
+                        continue
+                    port = pxname[3:]
+                    if not port.isdigit():
+                        continue
+                    result[port] = parts[status_idx].startswith('UP')
+
+        self._status_cache = result
+        self._status_cache_ts = now
+        return result
 
     def get_connections(self):
         try:
