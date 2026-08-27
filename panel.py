@@ -27,7 +27,19 @@ logging.basicConfig(
 log = logging.getLogger('panel')
 
 app = Flask(__name__, template_folder='templates', static_folder='static')
-app.secret_key = secrets.token_hex(16)
+_sk_path = '/root/tcp-panel-v2/.session_secret'
+try:
+    with open(_sk_path) as _f:
+        _sk = _f.read().strip()
+except Exception:
+    _sk = secrets.token_hex(16)
+    try:
+        with open(_sk_path, 'w') as _f:
+            _f.write(_sk)
+        os.chmod(_sk_path, 0o600)
+    except Exception:
+        pass
+app.secret_key = _sk
 app.permanent_session_lifetime = timedelta(hours=24)
 
 cfg = Config()
@@ -73,6 +85,8 @@ def _enforce_auto_disable(data):
         exhausted = q > 0 and item.get('used', 0) >= q * 1024
         expired = haproxy.is_expired(item.get('expire', ''))
         if not (exhausted or expired):
+            continue
+        if not str(lo).isdigit():
             continue
         reason = 'quota exhausted' if exhausted else 'expired'
         try:
@@ -542,7 +556,7 @@ def settings():
         cfg_data = db.get_config()
         if restart:
             import subprocess as _sp
-            _sp.Popen("systemctl restart tcp-panel-v2", shell=True)
+            _sp.Popen(["systemctl", "restart", "tcp-panel-v2"])
             return redirect(f'http://{request.host.rsplit(":", 1)[0]}:{np}/login')
     return render_template('settings.html', port=cfg_data.get('panel_port_v2', '8081'),
                           username=cfg_data.get('username', 'admin'), msg=msg)

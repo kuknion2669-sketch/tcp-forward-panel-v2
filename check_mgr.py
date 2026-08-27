@@ -34,6 +34,10 @@ class CheckManager:
         except Exception as e:
             ms = round((time.time() - start) * 1000, 1)
             log.info(f"Check FAIL: {item.get('name','')} ({ip}:{port}) {ms}ms - {e}")
+            try:
+                s.close()
+            except Exception:
+                pass
             return {'ok': False, 'ms': ms, 'error': str(e)}
 
     def check_all(self, data):
@@ -54,6 +58,10 @@ class CheckManager:
                 return idx, {'ok': True, 'ms': ms}
             except Exception as e:
                 ms = round((time.time() - start) * 1000, 1)
+                try:
+                    s.close()
+                except Exception:
+                    pass
                 return idx, {'ok': False, 'ms': ms, 'error': str(e)}
 
         with ThreadPoolExecutor(max_workers=self.max_workers) as pool:

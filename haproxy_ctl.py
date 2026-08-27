@@ -324,13 +324,9 @@ class HAProxyCtl:
                 ).strip()
             pid = pid_raw.split()[0] if pid_raw else ''
             if pid and pid.isdigit():
-                subprocess.Popen(
-                    'systemctl reload haproxy >/dev/null 2>&1',
-                    shell=True, start_new_session=True,
-                )
-                log.info(
-                    f"Reload started via systemctl (signalling pid {pid})"
-                )
+                import os, signal
+                os.kill(int(pid), signal.SIGUSR2)
+                log.info(f"HAProxy config reloaded via USR2 (pid {pid})")
             else:
                 log.warning(
                     f"Invalid PID '{pid_raw}', falling back to restart"

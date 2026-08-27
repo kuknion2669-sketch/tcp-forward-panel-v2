@@ -84,7 +84,7 @@ class StatsCollector:
             _sq_s.connect(self.haproxy.sock)
             for it in data:
                 lo = it.get('local', '')
-                if not lo or not it.get('enable', True):
+                if not lo or not str(lo).isdigit() or not it.get('enable', True):
                     continue
                 q = it.get('quota', 0)
                 is_exhausted = q > 0 and it.get('used', 0) >= q * 1024

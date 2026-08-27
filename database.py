@@ -10,8 +10,18 @@ class Database:
         self.db_file = db_file
         self._init_db()
 
+    def _connect(self):
+        """Open a WAL connection with busy timeout to avoid SQLITE_BUSY."""
+        conn = sqlite3.connect(self.db_file, timeout=5)
+        try:
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA busy_timeout=5000")
+        except Exception as e:
+            log.warning(f"DB PRAGMA failed: {e}")
+        return conn
+
     def _init_db(self):
-        conn = sqlite3.connect(self.db_file)
+        conn = self._connect()
         c = conn.cursor()
         c.execute('''CREATE TABLE IF NOT EXISTS rules (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -56,7 +66,7 @@ class Database:
         conn.close()
 
     def load(self):
-        conn = sqlite3.connect(self.db_file)
+        conn = self._connect()
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
         cur.execute("SELECT * FROM rules ORDER BY id")
@@ -66,7 +76,7 @@ class Database:
 
     def save(self, data):
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self._connect()
             c = conn.cursor()
             c.execute("DELETE FROM rules")
             for item in data:
@@ -85,7 +95,7 @@ class Database:
 
     def set_enable(self, local, enable):
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self._connect()
             conn.execute("UPDATE rules SET enable=? WHERE local=?", (1 if enable else 0, local))
             conn.commit()
             conn.close()
@@ -96,7 +106,7 @@ class Database:
 
     def log_event(self, port, name, event_type, message=''):
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self._connect()
             cur = conn.cursor()
             from datetime import datetime
             cur.execute('INSERT INTO events (time, port, name, event_type, message) VALUES (?,?,?,?,?)',
@@ -107,7 +117,7 @@ class Database:
             log.error(f"Log event failed: {e}")
 
     def get_config(self):
-        conn = sqlite3.connect(self.db_file)
+        conn = self._connect()
         c = conn.cursor()
         c.execute('SELECT key, value FROM config')
         rows = dict(c.fetchall())
@@ -116,7 +126,7 @@ class Database:
 
     def set_config(self, key, value):
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self._connect()
             conn.execute('INSERT OR REPLACE INTO config VALUES (?,?)', (key, value))
             conn.commit()
             conn.close()
@@ -130,7 +140,7 @@ class Database:
 
     def get_daily(self, days=30):
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self._connect()
             cur = conn.cursor()
             cur.execute('SELECT date, total_traffic, total_in, total_out FROM daily ORDER BY date ASC LIMIT ?', (days,))
             rows = cur.fetchall()
@@ -143,7 +153,7 @@ class Database:
     
     def get_events(self, limit=100, offset=0):
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self._connect()
             cur = conn.cursor()
             cur.execute('SELECT * FROM events ORDER BY id DESC LIMIT ? OFFSET ?', (limit, offset))
             rows = [dict(r) for r in cur.fetchall()]
@@ -156,7 +166,7 @@ class Database:
     def save_daily(self, date, total, total_in, total_out, online, total_nodes):
 
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self._connect()
             cur = conn.cursor()
             cur.execute('SELECT total_traffic, total_in, total_out FROM daily ORDER BY date DESC LIMIT 1')
             prev = cur.fetchone()
