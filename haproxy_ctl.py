@@ -259,15 +259,15 @@ class HAProxyCtl:
         lines = [
             "global",
             # daemon removed - systemd manages in foreground
-            "    maxconn 4096",
+            "    maxconn 8192",
             f"    stats socket {self.sock} mode 600 level admin",
             "    tune.bufsize 65536",
             "",
             "defaults",
             "    mode tcp",
             "    timeout connect 5000ms",
-            "    timeout client 1d",
-            "    timeout server 1d",
+            "    timeout client 1h",
+            "    timeout server 1h",
             "",
         ]
 
