@@ -13,7 +13,7 @@ import os, json, time, logging, secrets, socket, threading
 from datetime import datetime, timedelta
 from functools import wraps
 
-from config import Config
+from config import Config, RESERVED_PORTS
 from database import Database
 from haproxy_ctl import HAProxyCtl
 from check_mgr import CheckManager
@@ -27,19 +27,7 @@ logging.basicConfig(
 log = logging.getLogger('panel')
 
 app = Flask(__name__, template_folder='templates', static_folder='static')
-_sk_path = '/root/tcp-panel-v2/.session_secret'
-try:
-    with open(_sk_path) as _f:
-        _sk = _f.read().strip()
-except Exception:
-    _sk = secrets.token_hex(16)
-    try:
-        with open(_sk_path, 'w') as _f:
-            _f.write(_sk)
-        os.chmod(_sk_path, 0o600)
-    except Exception:
-        pass
-app.secret_key = _sk
+app.secret_key = secrets.token_hex(16)
 app.permanent_session_lifetime = timedelta(hours=24)
 
 cfg = Config()
@@ -86,8 +74,6 @@ def _enforce_auto_disable(data):
         expired = haproxy.is_expired(item.get('expire', ''))
         if not (exhausted or expired):
             continue
-        if not str(lo).isdigit():
-            continue
         reason = 'quota exhausted' if exhausted else 'expired'
         try:
             s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -114,6 +100,12 @@ def _background_loop():
             # no longer run it here. The manual "check" buttons still invoke
             # checker for on-demand diagnostics.
             _enforce_auto_disable(data)
+            # Traffic stats must not depend on someone opening the dashboard.
+            # update() is throttled to 60s internally; record() is cheap and
+            # keeps the per-day delta (re)written so the rollover at midnight
+            # is handled even if update() is within its throttle window.
+            stats.update()
+            stats.record()
         except Exception as e:
             log.warning(f"background loop error: {e}")
 
@@ -153,7 +145,8 @@ SENSITIVE_PORT_MIN = 1024
 
 def is_sensitive_port(port_str):
     try:
-        return int(port_str) < SENSITIVE_PORT_MIN
+        p = int(port_str)
+        return p < SENSITIVE_PORT_MIN or p in RESERVED_PORTS
     except (ValueError, TypeError):
         return False
 
@@ -352,6 +345,7 @@ def delete(idx):
         name = data[idx].get('name', '')
         local = data[idx].get('local', '')
         del data[idx]
+        stats.clear_last(local)
         db.save(data)
         haproxy.reload(data)
         log.info(f"Deleted rule #{idx}: {name}")
@@ -426,6 +420,13 @@ def edit(idx):
         expire = haproxy.parse_expire(ne)
         new_note = request.form.get('note', '').strip()
         new_group = request.form.get('group_name', '').strip()
+        old_local = old.get('local', '')
+        if new_local != old_local:
+            # Port changed: the old backend's counter baseline is gone once
+            # HAProxy reloads; drop it so a reused port starts clean instead of
+            # inheriting a stale baseline (duplicate / lost delta).
+            stats.clear_last(old_local)
+            stats.clear_last(new_local)
         old.update({'name': new_name, 'local': new_local, 'ip': new_ip,
                     'port': new_port, 'expire': expire, 'quota': new_q,
                     'note': new_note, 'group_name': new_group})
@@ -556,7 +557,7 @@ def settings():
         cfg_data = db.get_config()
         if restart:
             import subprocess as _sp
-            _sp.Popen(["systemctl", "restart", "tcp-panel-v2"])
+            _sp.Popen("systemctl restart tcp-panel-v2", shell=True)
             return redirect(f'http://{request.host.rsplit(":", 1)[0]}:{np}/login')
     return render_template('settings.html', port=cfg_data.get('panel_port_v2', '8081'),
                           username=cfg_data.get('username', 'admin'), msg=msg)
@@ -616,6 +617,7 @@ def api_v3_del(local):
     if idx is None: return jsonify({"error": "not found"}), 404
     name = data[idx].get("name", "")
     data.pop(idx)
+    stats.clear_last(local)
     db.save(data)
     haproxy.reload(data)
     db.log_event(local, name, "delete", "v3 delete: %s" % local)

@@ -6,6 +6,8 @@ import re
 import logging
 import time
 
+from config import RESERVED_PORTS
+
 log = logging.getLogger('haproxy')
 
 
@@ -194,6 +196,8 @@ class HAProxyCtl:
 
     def free_port(self):
         for p in range(10000, 65535):
+            if p in RESERVED_PORTS:
+                continue
             try:
                 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 s.settimeout(0.05)
@@ -259,15 +263,15 @@ class HAProxyCtl:
         lines = [
             "global",
             # daemon removed - systemd manages in foreground
-            "    maxconn 8192",
+            "    maxconn 4096",
             f"    stats socket {self.sock} mode 600 level admin",
             "    tune.bufsize 65536",
             "",
             "defaults",
             "    mode tcp",
             "    timeout connect 5000ms",
-            "    timeout client 1h",
-            "    timeout server 1h",
+            "    timeout client 1d",
+            "    timeout server 1d",
             "",
         ]
 
@@ -324,8 +328,13 @@ class HAProxyCtl:
                 ).strip()
             pid = pid_raw.split()[0] if pid_raw else ''
             if pid and pid.isdigit():
-                subprocess.Popen(['systemctl', 'reload', 'haproxy'], start_new_session=True)
-                log.info(f"HAProxy reload via systemctl (pid {pid})")
+                subprocess.Popen(
+                    'systemctl reload haproxy >/dev/null 2>&1',
+                    shell=True, start_new_session=True,
+                )
+                log.info(
+                    f"Reload started via systemctl (signalling pid {pid})"
+                )
             else:
                 log.warning(
                     f"Invalid PID '{pid_raw}', falling back to restart"
