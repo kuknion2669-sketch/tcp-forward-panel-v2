@@ -12,6 +12,7 @@ class StatsCollector:
         self.haproxy = haproxy_ctl
         self.last_update = [0.0]
         self.last_traffic = {}
+        self._last_record = 0.0
 
     def load_last_state(self):
         try:
@@ -63,7 +64,9 @@ class StatsCollector:
             else:
                 d_in = c['bin'] - prev['bin']
                 d_out = c['bout'] - prev['bout']
-                if d_in >= 0 and d_out >= 0 and d_in < 10*1024*1024*1024 and d_out < 10*1024*1024*1024:
+                if d_in >= 0 and d_out >= 0:
+                    if d_in > 10*1024*1024*1024 or d_out > 10*1024*1024*1024:
+                        log.warning(f"Large delta {p}: +{d_in/1024/1024:.1f}MB in, +{d_out/1024/1024:.1f}MB out (sanity check)")
                     item['used_in'] = round(item.get('used_in', 0) + d_in / (1024*1024), 1)
                     item['used_out'] = round(item.get('used_out', 0) + d_out / (1024*1024), 1)
                     item['used'] = round(item.get('used_in', 0) + item.get('used_out', 0), 1)
@@ -99,6 +102,9 @@ class StatsCollector:
 
     def record(self):
         """Save current traffic snapshot to daily table"""
+        if time.time() - self._last_record < 60:
+            return
+        self._last_record = time.time()
         today = datetime.now().strftime('%Y-%m-%d')
         data = self.db.load()
         status_map = self.haproxy.server_status_map()

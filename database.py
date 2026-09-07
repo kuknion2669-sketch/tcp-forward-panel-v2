@@ -142,8 +142,8 @@ class Database:
         try:
             conn = self._connect()
             cur = conn.cursor()
-            cur.execute('SELECT date, total_traffic, total_in, total_out FROM daily ORDER BY date ASC LIMIT ?', (days,))
-            rows = cur.fetchall()
+            cur.execute('SELECT date, total_traffic, total_in, total_out FROM daily ORDER BY date DESC LIMIT ?', (days,))
+            rows = list(reversed(cur.fetchall()))
             conn.close()
             return rows
         except Exception as e:
@@ -154,6 +154,7 @@ class Database:
     def get_events(self, limit=100, offset=0):
         try:
             conn = self._connect()
+            conn.row_factory = sqlite3.Row
             cur = conn.cursor()
             cur.execute('SELECT * FROM events ORDER BY id DESC LIMIT ? OFFSET ?', (limit, offset))
             rows = [dict(r) for r in cur.fetchall()]
@@ -170,14 +171,9 @@ class Database:
             cur = conn.cursor()
             cur.execute('SELECT total_traffic, total_in, total_out FROM daily ORDER BY date DESC LIMIT 1')
             prev = cur.fetchone()
-            if prev:
-                if total >= prev[0] and total_in >= prev[1] and total_out >= prev[2]:
-                    new_total, new_in, new_out = total, total_in, total_out
-                else:
-                    log.warning(f"Daily cumulative went backwards: prev_total={prev[0]}, cur_total={total}, keeping prev")
-                    new_total, new_in, new_out = prev[0], prev[1], prev[2]
-            else:
-                new_total, new_in, new_out = total, total_in, total_out
+            if prev and (total < prev[0] or total_in < prev[1] or total_out < prev[2]):
+                log.warning(f"Daily cumulative went backwards: prev_total={prev[0]}, cur_total={total}")
+            new_total, new_in, new_out = total, total_in, total_out
             cur.execute('INSERT OR REPLACE INTO daily (date, total_traffic, total_in, total_out, online_count, total_nodes) VALUES (?,?,?,?,?,?)',
                         (date, new_total, new_in, new_out, online, total_nodes))
             conn.commit()

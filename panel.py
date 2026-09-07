@@ -12,6 +12,7 @@ from flask import Flask, render_template, request, redirect, Response, session, 
 import os, json, time, logging, secrets, socket, threading
 from datetime import datetime, timedelta
 from functools import wraps
+from logging.handlers import RotatingFileHandler
 
 from config import Config, RESERVED_PORTS
 from database import Database
@@ -19,15 +20,25 @@ from haproxy_ctl import HAProxyCtl
 from check_mgr import CheckManager
 from stats_collector import StatsCollector
 
-logging.basicConfig(
-    filename='/root/panel-v2.log',
-    level=logging.INFO,
-    format='%(asctime)s [%(name)s] %(levelname)s: %(message)s'
-)
+_rh = RotatingFileHandler('/root/panel-v2.log', maxBytes=20*1024*1024, backupCount=5, encoding='utf-8')
+_rh.setFormatter(logging.Formatter('%(asctime)s [%(name)s] %(levelname)s: %(message)s'))
+logging.basicConfig(level=logging.INFO, handlers=[_rh])
 log = logging.getLogger('panel')
 
 app = Flask(__name__, template_folder='templates', static_folder='static')
-app.secret_key = secrets.token_hex(16)
+_sk_path = '/root/tcp-panel-v2/.session_secret'
+try:
+    with open(_sk_path) as _f:
+        _sk = _f.read().strip()
+except Exception:
+    _sk = secrets.token_hex(16)
+    try:
+        with open(_sk_path, 'w') as _f:
+            _f.write(_sk)
+        os.chmod(_sk_path, 0o600)
+    except Exception:
+        pass
+app.secret_key = _sk
 app.permanent_session_lifetime = timedelta(hours=24)
 
 cfg = Config()
@@ -289,7 +300,7 @@ def add():
             return redirect(request.referrer + "?msg=port_taken&free=" + local)
     expire = haproxy.parse_expire(request.form.get('expire', '').strip())
     quota_raw = request.form.get('quota', '').strip()
-    quota = 1.0 if quota_raw in ('', '0') else float(quota_raw) if quota_raw else 1.0
+    quota = 0.0 if quota_raw in ('', '0') else float(quota_raw)
     
     data = db.load()
     note = request.form.get('note', '').strip()
@@ -319,7 +330,7 @@ def batch_add():
         if local and not local.isdigit(): continue
         if local and is_sensitive_port(local): continue
         if not local: local = haproxy.free_port()
-        quota = 10.0 if qp in ('', '0') else float(qp) if qp else 10.0
+        quota = 0.0 if qp in ('', '0') else float(qp)
         expire = haproxy.parse_expire(ep)
         rules.append({'name': name, 'local': local, 'ip': ip, 'port': rport,
                       'expire': expire, 'quota': quota, 'used': 0, 'enable': True,
@@ -573,6 +584,89 @@ def events_page():
     return render_template('events.html', events=events_list, page=page, limit=limit)
 
 
+@app.before_request
+def _v3_auth_guard():
+    # Optional shared token for the internal v3 panel; no-op unless PANEL_V3_TOKEN set.
+    if request.path.startswith('/api/v3/'):
+        token = os.environ.get('PANEL_V3_TOKEN', '').strip()
+        if token:
+            hdr = request.headers.get('X-Panel-Token', '') or request.args.get('token', '')
+            if hdr != token:
+                return jsonify({'error': 'unauthorized'}), 403
+    return None
+
+@app.route('/audit')
+@login_required
+def audit():
+    import subprocess
+    hap_bytes = 0
+    try:
+        stats_raw = haproxy.get_api_stats()
+        if stats_raw.get('ok'):
+            for r in stats_raw.get('backends', []):
+                try:
+                    hap_bytes += int(r.get('bin', 0) or 0) + int(r.get('bout', 0) or 0)
+                except Exception:
+                    pass
+    except Exception:
+        pass
+    haproxy_gb = round(hap_bytes / 1024 ** 3, 2)
+    data = db.load()
+    panel_gb = round(sum(float(d.get('used', 0) or 0) for d in data) / 1024.0, 2)
+    iptables_gb = 0.0
+    try:
+        out = subprocess.getoutput('iptables -L -n -v -x 2>/dev/null')
+        total = 0
+        for line in out.splitlines():
+            parts = line.split()
+            if len(parts) >= 7:
+                try:
+                    total += int(parts[1])
+                except Exception:
+                    pass
+        iptables_gb = round(total / 1024 ** 3, 2)
+    except Exception:
+        pass
+    eth0_rx = eth0_tx = 0
+    try:
+        with open('/proc/net/dev') as f:
+            for line in f:
+                if line.strip().startswith('eth0:'):
+                    cols = line.split(':')[1].split()
+                    eth0_rx = int(cols[0])
+                    eth0_tx = int(cols[8])
+                    break
+    except Exception:
+        pass
+    eth0_total_gb = round((eth0_rx + eth0_tx) / 1024 ** 3, 2)
+    eth0_rx_gb = round(eth0_rx / 1024 ** 3, 2)
+    eth0_tx_gb = round(eth0_tx / 1024 ** 3, 2)
+    return render_template('audit.html',
+        haproxy_gb=haproxy_gb, iptables_gb=iptables_gb,
+        panel_data=[{'gb': panel_gb}],
+        eth0_total_gb=eth0_total_gb, eth0_rx_gb=eth0_rx_gb, eth0_tx_gb=eth0_tx_gb,
+        daily_deltas=[], reset_time='')
+
+@app.route('/api/reset_traffic', methods=['POST'])
+@login_required
+def reset_traffic():
+    data = db.load()
+    for d in data:
+        d['used'] = 0
+        d['used_in'] = 0
+        d['used_out'] = 0
+    db.save(data)
+    stats.last_traffic.clear()
+    stats.save_last_state()
+    try:
+        import subprocess as _sp
+        _sp.run('iptables -Z', shell=True, timeout=10)
+    except Exception:
+        pass
+    haproxy.reload(data)
+    db.log_event('', '', 'reset_traffic', 'reset all traffic counters')
+    return jsonify({'ok': True})
+
 # === v3 API routes (no auth, for internal v3 panel on Reldens) ===
 @app.route("/api/v3/rules", methods=["GET"])
 def api_v3_rules():
@@ -597,7 +691,7 @@ def api_v3_add():
         if local in existing: local = haproxy.free_port()
     expire = haproxy.parse_expire(body.get("expire", ""))
     quota_raw = body.get("quota", "")
-    quota = 1.0 if quota_raw in ("", 0, "0") else float(quota_raw)
+    quota = 0.0 if quota_raw in ("", 0, "0") else float(quota_raw)
     note = (body.get("note") or "") or ""
     group = (body.get("group_name") or "") or ""
     data.append({
