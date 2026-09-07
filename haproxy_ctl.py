@@ -270,8 +270,8 @@ class HAProxyCtl:
             "defaults",
             "    mode tcp",
             "    timeout connect 5000ms",
-            "    timeout client 5m",
-            "    timeout server 5m",
+            "    timeout client 1h",
+            "    timeout server 1h",
             "",
         ]
 
