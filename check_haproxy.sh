@@ -1,29 +1,25 @@
 #!/bin/bash
-# Watchdog: converge HAProxy to a single current process.
+# HAProxy health watchdog.
 #
-# WHY: HAProxy reload uses `-sf`, where the replaced master keeps serving its
-# existing connections until they drain. With long-lived TCP forwards those
-# old masters may never drain, so they pile up. The previous watchdog only
-# killed processes that "no longer listen" -- but `-sf` remnants keep
-# listening (SO_REUSEPORT), so nothing was ever cleaned (42 processes).
+# HISTORY: this script used to keep only the NEWEST haproxy PID and TERM/KILL
+# every older one after a 10 min grace window. That was correct for the old
+# model (single process + manual `-sf` reload, which left drain remnants
+# behind), but it is DESTRUCTIVE in master-worker mode: the master is OLDER
+# than its worker, so the watchdog would kill the master itself.
 #
-# NEW RULE: keep only the NEWEST haproxy process (highest PID); terminate any
-# other process once it has been alive longer than the grace window. The
-# newest process carries the current config. Older masters are drain
-# remnants -- give them the grace window to drain, then force them down.
-MAX_AGE_MIN=10
+# NOW: only ensure HAProxy is actually alive - systemd owns the master, so
+# there are no orphan processes left to reap.
 LOG=/root/panel-v2.log
-NEWEST=$(pgrep -x haproxy 2>/dev/null | sort -n | tail -1)
-for pid in $(pgrep -x haproxy 2>/dev/null); do
-  [ "$pid" = "$NEWEST" ] && continue
-  if ! kill -0 "$pid" 2>/dev/null; then continue; fi
-  age=$(ps -o etimes= -p "$pid" 2>/dev/null | tr -d ' ')
-  [ -n "$age" ] || continue
-  if [ "$age" -gt $((MAX_AGE_MIN * 60)) ]; then
-    echo "$(date '+%F %T') watchdog: killing stale haproxy pid $pid (age ${age}s, newest=$NEWEST)" >> "$LOG"
-    kill -TERM "$pid" 2>/dev/null || true
-    sleep 5
-    kill -0 "$pid" 2>/dev/null && kill -KILL "$pid" 2>/dev/null || true
-  fi
-done
+
+if pgrep -x haproxy >/dev/null 2>&1; then
+    MASTER=$(systemctl show -p MainPID --value haproxy 2>/dev/null | tr -d ' \n')
+    if [ -n "$MASTER" ] && [ "$MASTER" != "0" ] && ! kill -0 "$MASTER" 2>/dev/null; then
+        echo "$(date '+%F %T') watchdog: master $MASTER not alive, restarting haproxy" >> "$LOG"
+        systemctl restart haproxy
+    fi
+    exit 0
+fi
+
+echo "$(date '+%F %T') watchdog: no haproxy process, restarting haproxy" >> "$LOG"
+systemctl restart haproxy
 exit 0

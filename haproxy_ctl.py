@@ -265,6 +265,7 @@ class HAProxyCtl:
             # daemon removed - systemd manages in foreground
             "    maxconn 8192",
             f"    stats socket {self.sock} mode 600 level admin",
+            "    hard-stop-after 1h",
             "    tune.bufsize 65536",
             "",
             "defaults",

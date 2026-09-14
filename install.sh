@@ -98,13 +98,44 @@ info "配置 HAProxy 服务..."
 # 生成 HAProxy 优雅重载脚本（systemd 无法直接展开 $(cat ...)，需独立脚本）
 cat > /usr/local/bin/haproxy-reload.sh << 'RELOAD'
 #!/bin/sh
-/usr/sbin/haproxy -c -f /etc/haproxy/haproxy.cfg -q || exit 1
-OLD_PID=$(systemctl show -p MainPID --value haproxy 2>/dev/null | tr -d ' \n')
-[ -n "$OLD_PID" ] || OLD_PID=$(pgrep -x haproxy | head -1)
-[ -n "$OLD_PID" ] || exit 1
-rm -f /run/haproxy.sock
-/usr/sbin/haproxy -f /etc/haproxy/haproxy.cfg -p /run/haproxy.pid -sf "$OLD_PID" &
-sleep 1
+# HAProxy seamless reload (master-worker mode).
+#
+# WHY THIS EXISTS / HISTORY
+#   Earlier revisions ran HAProxy in single-process mode and reloaded by
+#   launching a second `haproxy -f ... -sf <old master>` process. Every
+#   frontend binds an explicit port and no listening FD was passed over, so the
+#   new process could not bind while the old one still held the sockets: it
+#   exited, the old one exited too, and systemd restart-looped against the
+#   leftover processes. On the MY relay (2026-09-14 18:18-18:19) that meant 12
+#   failed restarts and ~70 s with no listener at all - every node showed
+#   offline in the panel, and the admin socket was gone so the panel badged
+#   every node as offline.
+#
+# NOW
+#   HAProxy runs with `-W` (master/worker, see haproxy.service). The master owns
+#   the listening sockets and hands a copy to each new worker, so a reload is
+#   atomic: no bind conflict, no listening gap, no orphan processes, and the
+#   admin socket is never removed.
+set -e
+CFG=/etc/haproxy/haproxy.cfg
+
+/usr/sbin/haproxy -c -f "$CFG" -q || exit 1
+
+MASTER=$(systemctl show -p MainPID --value haproxy 2>/dev/null | tr -d ' \n')
+if [ -z "$MASTER" ] || [ "$MASTER" = "0" ] || ! kill -0 "$MASTER" 2>/dev/null; then
+    echo "haproxy-reload: no live master (MainPID='$MASTER')" >&2
+    exit 1
+fi
+
+if pgrep -P "$MASTER" -x haproxy >/dev/null 2>&1; then
+    # master-worker mode: master keeps the listening sockets -> seamless
+    kill -USR2 "$MASTER"
+    exit 0
+fi
+
+# Fallback for a single-process master (e.g. straight after an upgrade).
+# Detached so this script exits immediately and the reload job cannot deadlock.
+setsid sh -c 'sleep 1; systemctl restart haproxy' >/dev/null 2>&1 &
 exit 0
 RELOAD
 chmod +x /usr/local/bin/haproxy-reload.sh
@@ -118,8 +149,10 @@ Wants=network-online.target
 Type=simple
 Environment="CONFIG=/etc/haproxy/haproxy.cfg" "PIDFILE=/run/haproxy.pid"
 ExecStartPre=/usr/sbin/haproxy -c -f $CONFIG -q
-ExecStart=/usr/sbin/haproxy -f $CONFIG -p $PIDFILE
-ExecReload=/usr/sbin/haproxy -c -f $CONFIG -q
+# `-W` = master-worker mode: the master owns the listening sockets and passes a
+# copy to each new worker, which is what makes `systemctl reload` seamless
+# (no bind conflict, no listening gap, no orphan processes).
+ExecStart=/usr/sbin/haproxy -W -f $CONFIG -p $PIDFILE
 ExecReload=/usr/local/bin/haproxy-reload.sh
 Restart=always
 RestartSec=5
