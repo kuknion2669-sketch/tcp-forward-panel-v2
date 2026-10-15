@@ -194,20 +194,63 @@ class HAProxyCtl:
         except Exception:
             return False
 
-    def free_port(self):
-        for p in range(10000, 65535):
-            if p in RESERVED_PORTS:
+    def listening_ports(self):
+        """Every TCP port currently in LISTEN state, on any local address."""
+        ports = set()
+        for cmd in ('ss -ltnH 2>/dev/null', 'netstat -tln 2>/dev/null'):
+            out = subprocess.getoutput(cmd)
+            if not out.strip():
                 continue
-            try:
-                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                s.settimeout(0.05)
-                if s.connect_ex(('127.0.0.1', p)) != 0:
+            for line in out.splitlines():
+                for tok in line.split():
+                    if ':' in tok:
+                        tail = tok.rsplit(':', 1)[-1]
+                        if tail.isdigit():
+                            ports.add(int(tail))
+            break
+        return ports
+
+    def port_bindable(self, port):
+        """True when HAProxy itself could bind this port on all interfaces."""
+        s = None
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            s.bind(('0.0.0.0', port))
+            return True
+        except Exception:
+            return False
+        finally:
+            if s is not None:
+                try:
                     s.close()
-                    return str(p)
-                s.close()
-            except Exception:
+                except Exception:
+                    pass
+
+    def free_port(self, taken=None):
+        """Pick a local port free in the DATABASE and free on the host.
+
+        `taken` = local ports already owned by other rules (DB). Sockets alone
+        are not enough: while HAProxy is down/restarting nothing is listening,
+        so a port another rule already uses looks "free" and gets handed out
+        twice. The generated config then binds the same port twice and HAProxy
+        refuses to start (2026-10-15 customer-panel incident: two rules on
+        local port 10000).
+        """
+        used = set(RESERVED_PORTS)
+        for p in (taken or []):
+            try:
+                used.add(int(str(p).strip()))
+            except (TypeError, ValueError):
                 continue
-        return '10000'
+        listening = self.listening_ports()
+        for p in range(10000, 65535):
+            if p in used or p in listening:
+                continue
+            if self.port_bindable(p):
+                return str(p)
+        log.error("free_port: no free local port in 10000-65534")
+        return ''
 
     def parse_expire(self, expire_raw):
         if not expire_raw:
@@ -277,6 +320,8 @@ class HAProxyCtl:
         ]
 
         expected_ports = set()
+        seen_locals = {}
+        dup_locals = {}
         for item in data:
             if not item.get('enable', True):
                 continue
@@ -290,6 +335,12 @@ class HAProxyCtl:
             prt = item.get('port', '')
             if not loc or not ip or not prt:
                 continue
+            if loc in seen_locals:
+                dup_locals.setdefault(loc, [seen_locals[loc]]).append(
+                    item.get('name', '')
+                )
+            else:
+                seen_locals[loc] = item.get('name', '')
             expected_ports.add(loc)
             lines.append(f"frontend fe_{loc}")
             lines.append(f"    bind 0.0.0.0:{loc}")
@@ -302,6 +353,18 @@ class HAProxyCtl:
                 f"    server s{loc} {ip}:{prt} check inter 10s fall 3 rise 2"
             )
             lines.append("")
+
+        # Refuse to write a config that binds the same local port twice:
+        # `haproxy -c` does not catch duplicate binds, and such a config makes
+        # HAProxy fail to start -> systemd restart loop -> every node on this
+        # host goes offline (2026-10-15 customer panel). Keep the running
+        # config untouched and let the caller show the error instead.
+        if dup_locals:
+            log.critical(
+                "Duplicate local ports %s - config NOT written, HAProxy left "
+                "untouched. Fix the duplicate rule first.", dup_locals
+            )
+            return False
 
         # Validate config before writing
         cfg = '\n'.join(lines) + '\n'

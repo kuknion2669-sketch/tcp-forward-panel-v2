@@ -285,24 +285,30 @@ def add():
         return redirect(request.referrer or '/')
     if not port.isdigit() or (local and not local.isdigit()):
         return redirect(request.referrer or '/')
+    # `taken` = ports already owned by a rule in the DB. Auto-assignment must
+    # respect it: a port that merely is not listening right now (HAProxy down /
+    # reloading) is NOT free, it just looks free - that is how two rules ended
+    # up on 10000 and HAProxy stopped starting (2026-10-15).
+    data = db.load()
+    taken = [d['local'] for d in data if d.get('local')]
     if local and is_sensitive_port(local):
-        free = haproxy.free_port()
+        free = haproxy.free_port(taken)
         return redirect(request.referrer + '?msg=sensitive_port&free=' + free)
     if not local:
-        local = haproxy.free_port()
+        local = haproxy.free_port(taken)
+        if not local:
+            return redirect(request.referrer + '?msg=no_free_port')
     else:
-        existing = [d['local'] for d in db.load() if d.get('local')]
-        if local in existing:
+        if local in taken:
             if is_sensitive_port(local):
-                local = haproxy.free_port()
+                local = haproxy.free_port(taken)
                 return redirect(request.referrer + "?msg=sensitive_port")
-            local = haproxy.free_port()
+            local = haproxy.free_port(taken)
             return redirect(request.referrer + "?msg=port_taken&free=" + local)
     expire = haproxy.parse_expire(request.form.get('expire', '').strip())
     quota_raw = request.form.get('quota', '').strip()
     quota = 0.0 if quota_raw in ('', '0') else float(quota_raw)
     
-    data = db.load()
     note = request.form.get('note', '').strip()
     group = request.form.get('group_name', '').strip()
     data.append({'name': name, 'local': local, 'ip': ip, 'port': port,
@@ -319,6 +325,7 @@ def add():
 def batch_add():
     text = request.form.get('batch_data', '')
     rules = []
+    taken = [d['local'] for d in db.load() if d.get('local')]
     for line in text.strip().split('\n'):
         if not line or line.startswith('#'): continue
         parts = line.strip().split(':')
@@ -329,7 +336,12 @@ def batch_add():
         if not name or not ip or not rport or not rport.isdigit(): continue
         if local and not local.isdigit(): continue
         if local and is_sensitive_port(local): continue
-        if not local: local = haproxy.free_port()
+        if not local:
+            local = haproxy.free_port(taken)
+            if not local: continue
+            taken.append(local)
+        elif local in taken:
+            continue
         quota = 0.0 if qp in ('', '0') else float(qp)
         expire = haproxy.parse_expire(ep)
         rules.append({'name': name, 'local': local, 'ip': ip, 'port': rport,
@@ -417,16 +429,20 @@ def edit(idx):
             return redirect(request.referrer or '/')
         if not new_local.isdigit() or not new_port.isdigit():
             return redirect(request.referrer or '/')
+        # Ports owned by the OTHER rules; auto-picked ports must avoid them even
+        # when HAProxy is down and nothing is listening (2026-10-15 incident).
+        taken = [o.get('local') for oi, o in enumerate(data)
+                 if oi != idx and o.get('local')]
         if new_local != old.get("local", "") and is_sensitive_port(new_local):
-            free = haproxy.free_port()
+            free = haproxy.free_port(taken)
             new_local = free
             auto_assigned = 'sensitive'
-        for oi, o in enumerate(data):
-            if oi != idx and o.get('local') == new_local:
-                free = haproxy.free_port()
-                new_local = free
-                auto_assigned = 'occupied'
-                break
+        if new_local in taken:
+            free = haproxy.free_port(taken)
+            if not free or free in taken:
+                return redirect("/?ecode=no_free_port")
+            new_local = free
+            auto_assigned = 'occupied'
         ne = request.form.get('expire', '').strip()
         expire = haproxy.parse_expire(ne)
         new_note = request.form.get('note', '').strip()
@@ -682,10 +698,17 @@ def api_v3_add():
     if not name or not ip or not port: return jsonify({"error": "name, ip, port required"}), 400
     local = str(body.get("local") or "").strip()
     data = db.load()
+    taken = [d["local"] for d in data if d.get("local")]
     if not local or not local.isdigit():
-        local = haproxy.free_port()
+        local = haproxy.free_port(taken)
+        if not local:
+            return jsonify({"error": "no free local port"}), 500
     elif is_sensitive_port(local):
         return jsonify({"error": "sensitive port"}), 400
+    elif local in taken:
+        local = haproxy.free_port(taken)
+        if not local:
+            return jsonify({"error": "no free local port"}), 500
     else:
         existing = [d["local"] for d in data if d.get("local")]
         if local in existing: local = haproxy.free_port()
