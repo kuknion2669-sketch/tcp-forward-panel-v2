@@ -9,7 +9,7 @@
 # 6. Same DB schema → coexists with v13, no node disruption
 
 from flask import Flask, render_template, request, redirect, Response, session, jsonify
-import os, json, time, logging, secrets, socket, threading
+import os, json, time, logging, secrets, socket, threading, subprocess
 from datetime import datetime, timedelta
 from functools import wraps
 from logging.handlers import RotatingFileHandler
@@ -47,6 +47,39 @@ haproxy = HAProxyCtl(cfg)
 checker = CheckManager(db)
 stats = StatsCollector(db, haproxy)
 stats.load_last_state()
+
+
+
+def apply_desired(d, why=""):
+    """把"期望状态"落地：写完数据库之后调用（2026-10-16 重构 #3）。
+
+    老做法是"你这次请求自己生成配置 + 校验 + 重载 HAProxy"，页面因此要等 2-3 秒。
+    新做法默认**异步**：只戳一下后台 worker（tcp-panel-worker.service），由它带锁地
+    做 统计 / 自动停用 / 对账，页面立刻返回。
+
+    应急回退：设环境变量 `PANEL_SYNC_APPLY=1` 就退回老的同步 reload 行为。
+    """
+    if os.environ.get("PANEL_SYNC_APPLY") == "1":
+        try:
+            return haproxy.reload(d)
+        except Exception as e:                     # noqa: BLE001
+            log.warning(f"sync apply failed: {e}")
+            return False
+    try:
+        subprocess.Popen(["systemctl", "start", "--no-block",
+                          "tcp-panel-worker.service"],
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         start_new_session=True)
+        log.info("apply_desired: poked worker%s", f" ({why})" if why else "")
+        return True
+    except Exception as e:                         # noqa: BLE001
+        log.warning(f"poke worker failed: {e} -> 退回同步重载")
+        try:
+            return haproxy.reload(d)
+        except Exception as e2:                    # noqa: BLE001
+            log.warning(f"sync fallback failed: {e2}")
+            return False
+
 
 # ── Real-time node health cache & background jobs ──
 CHECK_CACHE = {}
@@ -319,7 +352,7 @@ def add():
                  'expire': expire, 'quota': quota, 'used': 0, 'enable': True,
                  'note': note, 'group_name': group})
     db.save(data)
-    haproxy.reload(data)
+    apply_desired(data)
     log.info(f"Added rule: {name} ({local} -> {ip}:{port})")
     db.log_event(local, name, "add", f"add: {local} -> {ip}:{port}")
     return redirect(request.referrer or '/')
@@ -356,7 +389,7 @@ def batch_add():
         if any(i['local'] == r['local'] for i in data): continue
         data.append(r)
     db.save(data)
-    haproxy.reload(data)
+    apply_desired(data)
     log.info(f"Batch added {len(rules)} rules")
     db.log_event("", "", "batch_add", f"batch add: {len(rules)} rules")
     return redirect(request.referrer or '/')
@@ -374,7 +407,7 @@ def delete(idx):
         del data[idx]
         stats.clear_last(local)
         db.save(data)
-        haproxy.reload(data)
+        apply_desired(data)
         log.info(f"Deleted rule #{idx}: {name}")
     db.log_event(local, name, "delete", f"delete: {local}")
     return jsonify({'ok': ok})
@@ -462,7 +495,7 @@ def edit(idx):
                     'port': new_port, 'expire': expire, 'quota': new_q,
                     'note': new_note, 'group_name': new_group})
         db.save(data)
-        haproxy.reload(data)
+        apply_desired(data)
         log.info(f"Edited rule #{idx}: {new_name}")
         db.log_event(new_local, new_name, "edit", f"edit: {new_local}")
         if auto_assigned:
@@ -489,7 +522,7 @@ def reset_quota(idx):
         data[idx]['enable'] = True
         db.save(data)
         stats.clear_last(local)
-        haproxy.reload(data)
+        apply_desired(data)
         log.info(f"Reset quota for #{idx}: {rname}")
     db.log_event(local, rname, "reset_quota", f"reset_quota: {local}")
     return redirect(request.referrer or '/')
@@ -504,7 +537,7 @@ def restart_node(local):
                 return redirect(request.referrer or '/')
             if item.get('quota', 0) > 0 and item.get('used', 0) >= item.get('quota', 0) * 1024:
                 return redirect(request.referrer or '/')
-            haproxy.reload(data)
+            apply_desired(data)
             break
     return redirect(request.referrer or '/')
 
@@ -529,7 +562,7 @@ def api_toggle(local):
                 db.log_event(local, item.get("name",""), "toggle", f"toggle: {local} {'enabled' if enabled else 'disabled'}")
             except Exception as e:
                 log.warning(f"Socket toggle failed for {local}: {e}, falling back to reload")
-                haproxy.reload(data)
+                apply_desired(data)
             return jsonify({'ok': True, 'enable': enabled})
     api_v3_reload()
     return jsonify({'ok': False})
@@ -683,7 +716,7 @@ def reset_traffic():
         _sp.run('iptables -Z', shell=True, timeout=10)
     except Exception:
         pass
-    haproxy.reload(data)
+    apply_desired(data)
     db.log_event('', '', 'reset_traffic', 'reset all traffic counters')
     return jsonify({'ok': True})
 
@@ -727,7 +760,7 @@ def api_v3_add():
         "note": note, "group_name": group
     })
     db.save(data)
-    haproxy.reload(data)
+    apply_desired(data)
     db.log_event(local, name, "add", "v3 add: %s -> %s:%s" % (local, ip, port))
     return jsonify({"status": "ok", "local": local})
 
@@ -740,7 +773,7 @@ def api_v3_del(local):
     data.pop(idx)
     stats.clear_last(local)
     db.save(data)
-    haproxy.reload(data)
+    apply_desired(data)
     db.log_event(local, name, "delete", "v3 delete: %s" % local)
     return jsonify({"status": "ok"})
 
@@ -751,7 +784,7 @@ def api_v3_toggle(local):
         if d.get("local") == local:
             d["enable"] = not d.get("enable", True)
             db.save(data)
-            haproxy.reload(data)
+            apply_desired(data)
             status = "enabled" if d["enable"] else "disabled"
             db.log_event(local, d.get("name", ""), "toggle", "v3 %s" % status)
             return jsonify({"status": status})
@@ -760,7 +793,7 @@ def api_v3_toggle(local):
 @app.route("/api/v3/reload", methods=["POST"])
 def api_v3_reload():
     data = db.load()
-    haproxy.reload(data)
+    apply_desired(data)
     return jsonify({"status": "ok"})
 
 

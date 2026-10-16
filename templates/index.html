@@ -188,7 +188,7 @@ body{background:var(--bg);color:var(--text);font:14px/1.6 -apple-system,BlinkMac
 </style>
 <div id="toast"></div>
 <script>
-(function(){var p=new URLSearchParams(location.search);var eco=p.get("ecode"),free=p.get("free");var t=document.getElementById("toast");var txt="";if(eco=="sensitive")txt="[!] 敏感端口，已自动分配空闲端口: "+free;else if(eco=="occupied")txt="[!] 端口被占用，已自动分配空闲端口: "+free;if(txt){t.textContent=txt;t.style.display="block";setTimeout(function(){t.style.opacity="0";setTimeout(function(){t.style.display="none"},500)},4000)}})();
+(function(){var p=new URLSearchParams(location.search);var eco=p.get("ecode"),free=p.get("free"),msg=p.get("msg");var t=document.getElementById("toast");var txt="";if(eco=="sensitive")txt="[!] 敏感端口，已自动分配空闲端口: "+free;else if(eco=="occupied")txt="[!] 端口被占用，已自动分配空闲端口: "+free;else if(msg=="applied")txt="[OK] 已保存，正在生效（几秒内自动完成，可刷新页面查看）";if(txt){t.textContent=txt;t.style.display="block";setTimeout(function(){t.style.opacity="0";setTimeout(function(){t.style.display="none"},500)},4000)}})();
 </script>
 
 

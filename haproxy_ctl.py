@@ -437,7 +437,11 @@ class HAProxyCtl:
         # 2026-10-16: 一次取全集再比集合（force=True 绕开缓存，reload 后要看实时结果）。
         # 老写法逐个 is_listening() = 198 次 netstat ≈ 18.5 秒，这就是"加节点要等 20 多秒"。
         live_ports = self.listening_ports(force=True)
-        missing_ports = sorted(p for p in expected_ports if p not in live_ports)
+        # ⚠️ expected_ports 里是**字符串**（来自 DB 的 TEXT 列），live_ports 是**整数**集合 ——
+        # 直接 `p not in live_ports` 会永远为真（2026-10-16 提速改动引入的坑：每次 reload 都误判
+        # "端口没起来" → 多做一次整机 restart）。这里统一成 int 再比。
+        missing_ports = sorted(p for p in expected_ports
+                               if str(p).isdigit() and int(p) not in live_ports)
 
         if missing_ports:
             log.error(
@@ -451,7 +455,8 @@ class HAProxyCtl:
             )
             time.sleep(2)
             live_ports = self.listening_ports(force=True)
-            still_missing = [p for p in missing_ports if p not in live_ports]
+            still_missing = [p for p in missing_ports
+                             if str(p).isdigit() and int(p) not in live_ports]
             if still_missing:
                 log.critical(
                     f"Ports still missing after restart: {still_missing}. "
