@@ -22,6 +22,9 @@ class HAProxyCtl:
         self._bufsize = 65536
         self._status_cache = {}
         self._status_cache_ts = 0.0
+        # 2026-10-16: "在听端口全集"缓存（见 listening_ports / is_listening）
+        self._listen_cache = None
+        self._listen_ts = 0.0
 
     def _sock_cmd(self, cmd):
         try:
@@ -177,12 +180,15 @@ class HAProxyCtl:
             log.warning(f"get_connections failed: {e}")
             return {}
 
-    def is_listening(self, port):
-        """Check if HAProxy is actually listening on a given port"""
+    def is_listening(self, port, force=False):
+        """Check if HAProxy is actually listening on a given port.
+
+        2026-10-16: 改成查"一次取到的在听端口全集"（带 3 秒缓存），不再每个端口起一个
+        `netstat -tlnp | grep` 子进程 —— 老写法单次实测 ~105ms（机器上 6000+ 连接），
+        面板首页 198 条规则 = 20 秒、分组视图 40+ 秒、加节点时的 reload 校验 18.5 秒。
+        """
         try:
-            return 'LISTEN' in subprocess.getoutput(
-                f'netstat -tlnp 2>/dev/null | grep :{port}'
-            )
+            return int(port) in self.listening_ports(force=force)
         except Exception:
             return False
 
@@ -194,8 +200,16 @@ class HAProxyCtl:
         except Exception:
             return False
 
-    def listening_ports(self):
-        """Every TCP port currently in LISTEN state, on any local address."""
+    def listening_ports(self, force=False, ttl=3.0):
+        """Every TCP port currently in LISTEN state, on any local address.
+
+        2026-10-16: 加 3 秒缓存（一次 ss/netstat 进程拿全集）。调用方要"改完立刻看结果"
+        时传 force=True（reload 校验就这么用），避免拿到 reload 前的旧快照。
+        """
+        now = time.time()
+        if (not force and self._listen_cache is not None
+                and now - self._listen_ts < ttl):
+            return set(self._listen_cache)
         ports = set()
         for cmd in ('ss -ltnH 2>/dev/null', 'netstat -tln 2>/dev/null'):
             out = subprocess.getoutput(cmd)
@@ -208,7 +222,9 @@ class HAProxyCtl:
                         if tail.isdigit():
                             ports.add(int(tail))
             break
-        return ports
+        self._listen_cache = ports
+        self._listen_ts = now
+        return set(ports)
 
     def port_bindable(self, port):
         """True when HAProxy itself could bind this port on all interfaces."""
@@ -418,10 +434,10 @@ class HAProxyCtl:
         time.sleep(2)
 
         # Validate: check every expected port is actually listening
-        missing_ports = []
-        for port in sorted(expected_ports):
-            if not self.is_listening(port):
-                missing_ports.append(port)
+        # 2026-10-16: 一次取全集再比集合（force=True 绕开缓存，reload 后要看实时结果）。
+        # 老写法逐个 is_listening() = 198 次 netstat ≈ 18.5 秒，这就是"加节点要等 20 多秒"。
+        live_ports = self.listening_ports(force=True)
+        missing_ports = sorted(p for p in expected_ports if p not in live_ports)
 
         if missing_ports:
             log.error(
@@ -434,9 +450,8 @@ class HAProxyCtl:
                 shell=True, capture_output=True, timeout=15
             )
             time.sleep(2)
-            still_missing = [
-                p for p in missing_ports if not self.is_listening(p)
-            ]
+            live_ports = self.listening_ports(force=True)
+            still_missing = [p for p in missing_ports if p not in live_ports]
             if still_missing:
                 log.critical(
                     f"Ports still missing after restart: {still_missing}. "

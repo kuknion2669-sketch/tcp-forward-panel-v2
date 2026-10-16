@@ -168,7 +168,11 @@ def enrich_item(item, idx, status_map):
     # the badge matches what is actually being forwarded. Fall back to the
     # local-listener check only when HAProxy has no row for this local port
     # (e.g. a disabled rule that was left out of the config).
-    i['online'] = status_map.get(i['local'], haproxy.is_listening(i['local']))
+    # 2026-10-16: 老写法 `status_map.get(local, haproxy.is_listening(local))` 里 Python 的
+    # 默认值是**无条件求值**的 —— 每一行规则都白跑一次 is_listening（老实现是 ~105ms 的
+    # netstat 子进程）：198 行 ≈ 20 秒、分组视图跑两遍 ≈ 42 秒。改成显式判断，语义不变。
+    i['online'] = (status_map[i['local']] if i['local'] in status_map
+                   else haproxy.is_listening(i['local']))
     i['expired'] = haproxy.is_expired(i.get('expire', ''))
     i['expire_time_display'] = ''
     if i.get('expire'):

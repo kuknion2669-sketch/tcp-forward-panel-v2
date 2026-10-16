@@ -120,7 +120,9 @@ class StatsCollector:
                 total_out += float(item.get('used_out', 0))
             except Exception:
                 pass  # non-critical, skip
-            if status_map.get(p, self.haproxy.is_listening(p)):
+            # 2026-10-16: 同 panel.enrich_item —— 别用 dict.get(key, 慢函数())：
+            # 默认值会被无条件求值（198 条规则 × 一次 netstat 子进程）。
+            if (status_map[p] if p in status_map else self.haproxy.is_listening(p)):
                 online += 1
 
         self.db.save_daily(today, round(total, 1), round(total_in, 1),
