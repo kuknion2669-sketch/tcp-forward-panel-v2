@@ -7,8 +7,6 @@ After=network.target haproxy.service tcp-panel-v2.service
 Type=oneshot
 User=root
 WorkingDirectory=/root/tcp-panel-v2
-Environment="PANEL_PYTHON=/usr/bin/python3"
+Environment="PANEL_PYTHON=__PYTHON_CMD__"
 ExecStart=/root/tcp-panel-v2/start_worker.sh
 TimeoutStartSec=180
-# 拿不到锁就直接退出（已有另一份在跑），所以偶尔撞车不算失败
-SuccessExitStatus=0 3

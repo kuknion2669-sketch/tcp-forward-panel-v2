@@ -66,10 +66,13 @@ def apply_desired(d, why=""):
             log.warning(f"sync apply failed: {e}")
             return False
     try:
-        subprocess.Popen(["systemctl", "start", "--no-block",
-                          "tcp-panel-worker.service"],
-                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                         start_new_session=True)
+        r = subprocess.run(
+            ["systemctl", "start", "--no-block", "tcp-panel-worker.service"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            timeout=3, start_new_session=True,
+        )
+        if r.returncode != 0:
+            raise RuntimeError(f"systemctl returned {r.returncode}")
         log.info("apply_desired: poked worker%s", f" ({why})" if why else "")
         return True
     except Exception as e:                         # noqa: BLE001

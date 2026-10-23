@@ -23,6 +23,7 @@ Thumbs.db
 !backup.sh
 !check_haproxy.sh
 !upgrade.sh
+!start_worker.sh
 data.db
 
 # runtime db

@@ -317,8 +317,13 @@ class HAProxyCtl:
             return False, str(e)
 
 
-    def reload(self, data):
-        """Generate config, validate, reload via haproxy -sf, verify listening"""
+    def generate_config(self, data):
+        """Build HAProxy config from database rules.
+
+        Returns ``(config_text, expected_ports, duplicate_locals)``.  Keeping
+        generation here means the synchronous reload path and the background
+        reconciler always compare/write exactly the same configuration.
+        """
         lines = [
             "global",
             # daemon removed - systemd manages in foreground
@@ -370,6 +375,12 @@ class HAProxyCtl:
             )
             lines.append("")
 
+        return "\n".join(lines) + "\n", expected_ports, dup_locals
+
+    def reload(self, data):
+        """Generate config, validate, reload via haproxy -sf, verify listening"""
+        cfg, expected_ports, dup_locals = self.generate_config(data)
+
         # Refuse to write a config that binds the same local port twice:
         # `haproxy -c` does not catch duplicate binds, and such a config makes
         # HAProxy fail to start -> systemd restart loop -> every node on this
@@ -383,7 +394,6 @@ class HAProxyCtl:
             return False
 
         # Validate config before writing
-        cfg = '\n'.join(lines) + '\n'
         valid, err = self.validate_config(cfg)
         if not valid:
             log.error(f"Config validation error: {err}")

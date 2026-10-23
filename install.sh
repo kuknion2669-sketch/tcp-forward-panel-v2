@@ -169,8 +169,9 @@ systemctl enable haproxy
 
 # ── 安装面板辅助脚本与 systemd 服务 ──
 info "安装面板服务与辅助脚本..."
-chmod +x /root/tcp-panel-v2/start_panel.sh /root/tcp-panel-v2/backup.sh \
-         /root/tcp-panel-v2/check_haproxy.sh /root/tcp-panel-v2/upgrade.sh
+chmod +x /root/tcp-panel-v2/start_panel.sh /root/tcp-panel-v2/start_worker.sh \
+         /root/tcp-panel-v2/backup.sh /root/tcp-panel-v2/check_haproxy.sh \
+         /root/tcp-panel-v2/upgrade.sh
 # 移除旧的重复服务单元，避免冲突
 for u in tcp-panel.service panel.service; do
   if [ -e /etc/systemd/system/$u ]; then
@@ -179,13 +180,17 @@ for u in tcp-panel.service panel.service; do
   fi
 done
 sed "s|__PYTHON_CMD__|$PYTHON_CMD|g" /root/tcp-panel-v2/tcp-panel-v2.service > /etc/systemd/system/tcp-panel-v2.service
+mkdir -p /etc/systemd/system/tcp-panel-v2.service.d
+cp /root/tcp-panel-v2/tcp-panel-v2.service.d-bg-split.conf /etc/systemd/system/tcp-panel-v2.service.d/bg-split.conf
+sed "s|__PYTHON_CMD__|$PYTHON_CMD|g" /root/tcp-panel-v2/tcp-panel-worker.service > /etc/systemd/system/tcp-panel-worker.service
+cp /root/tcp-panel-v2/tcp-panel-worker.timer /etc/systemd/system/tcp-panel-worker.timer
 cp /root/tcp-panel-v2/panel-backup.service /etc/systemd/system/panel-backup.service
 cp /root/tcp-panel-v2/panel-backup.timer /etc/systemd/system/panel-backup.timer
 cp /root/tcp-panel-v2/haproxy-watchdog.service /etc/systemd/system/haproxy-watchdog.service
 cp /root/tcp-panel-v2/haproxy-watchdog.timer /etc/systemd/system/haproxy-watchdog.timer
 systemctl daemon-reload
 systemctl enable --now tcp-panel-v2
-systemctl enable --now panel-backup.timer haproxy-watchdog.timer
+systemctl enable --now tcp-panel-worker.timer panel-backup.timer haproxy-watchdog.timer
 
 # ── 系统调优 ──
 info "系统调优..."
@@ -249,6 +254,7 @@ db.close()
 # ── 启动面板 ──
 info "启动面板..."
 systemctl restart tcp-panel-v2
+systemctl start tcp-panel-worker.service
 sleep 3
 
 # ── 清理 ──
