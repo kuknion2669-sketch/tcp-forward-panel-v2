@@ -87,8 +87,8 @@ class Database:
             log.warning(f"Migration: could not add group_name - {e}")
         try:
             c.execute(
-                "CREATE UNIQUE INDEX IF NOT EXISTS idx_rules_local_unique "
-                "ON rules(local)"
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_rules_local_active_unique "
+                "ON rules(local) WHERE enable=1"
             )
         except sqlite3.IntegrityError as e:
             log.critical("Duplicate local ports prevent the unique index: %s", e)
