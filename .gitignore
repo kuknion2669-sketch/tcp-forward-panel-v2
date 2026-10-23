@@ -24,6 +24,7 @@ Thumbs.db
 !check_haproxy.sh
 !upgrade.sh
 !start_worker.sh
+!haproxy-reload.sh
 data.db
 
 # runtime db

@@ -98,50 +98,8 @@ fi
 
 # ── 配置 HAProxy systemd 服务 ──
 info "配置 HAProxy 服务..."
-# 生成 HAProxy 优雅重载脚本（systemd 无法直接展开 $(cat ...)，需独立脚本）
-cat > /usr/local/bin/haproxy-reload.sh << 'RELOAD'
-#!/bin/sh
-# HAProxy seamless reload (master-worker mode).
-#
-# WHY THIS EXISTS / HISTORY
-#   Earlier revisions ran HAProxy in single-process mode and reloaded by
-#   launching a second `haproxy -f ... -sf <old master>` process. Every
-#   frontend binds an explicit port and no listening FD was passed over, so the
-#   new process could not bind while the old one still held the sockets: it
-#   exited, the old one exited too, and systemd restart-looped against the
-#   leftover processes. On the MY relay (2026-09-14 18:18-18:19) that meant 12
-#   failed restarts and ~70 s with no listener at all - every node showed
-#   offline in the panel, and the admin socket was gone so the panel badged
-#   every node as offline.
-#
-# NOW
-#   HAProxy runs with `-W` (master/worker, see haproxy.service). The master owns
-#   the listening sockets and hands a copy to each new worker, so a reload is
-#   atomic: no bind conflict, no listening gap, no orphan processes, and the
-#   admin socket is never removed.
-set -e
-CFG=/etc/haproxy/haproxy.cfg
-
-/usr/sbin/haproxy -c -f "$CFG" -q || exit 1
-
-MASTER=$(systemctl show -p MainPID --value haproxy 2>/dev/null | tr -d ' \n')
-if [ -z "$MASTER" ] || [ "$MASTER" = "0" ] || ! kill -0 "$MASTER" 2>/dev/null; then
-    echo "haproxy-reload: no live master (MainPID='$MASTER')" >&2
-    exit 1
-fi
-
-if pgrep -P "$MASTER" -x haproxy >/dev/null 2>&1; then
-    # master-worker mode: master keeps the listening sockets -> seamless
-    kill -USR2 "$MASTER"
-    exit 0
-fi
-
-# Fallback for a single-process master (e.g. straight after an upgrade).
-# Detached so this script exits immediately and the reload job cannot deadlock.
-setsid sh -c 'sleep 1; systemctl restart haproxy' >/dev/null 2>&1 &
-exit 0
-RELOAD
-chmod +x /usr/local/bin/haproxy-reload.sh
+install -m 755 /root/tcp-panel-v2/haproxy-reload.sh \
+        /usr/local/bin/haproxy-reload.sh
 cat > /lib/systemd/system/haproxy.service << 'SERVICE'
 [Unit]
 Description=HAProxy Load Balancer

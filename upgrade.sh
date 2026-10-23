@@ -38,6 +38,7 @@ echo "== 语法检查 =="
 
 echo "== 更新 systemd 服务 =="
 chmod +x start_panel.sh start_worker.sh
+install -m 755 haproxy-reload.sh /usr/local/bin/haproxy-reload.sh
 sed "s|__PYTHON_CMD__|$PY|g" tcp-panel-v2.service > /etc/systemd/system/tcp-panel-v2.service
 mkdir -p /etc/systemd/system/tcp-panel-v2.service.d
 cp tcp-panel-v2.service.d-bg-split.conf /etc/systemd/system/tcp-panel-v2.service.d/bg-split.conf
