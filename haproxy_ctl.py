@@ -634,27 +634,6 @@ class HAProxyCtl:
                 return False
             self._mark_config_applied(cfg)
 
-        # Disable exhausted nodes
-        try:
-            s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            s.settimeout(3)
-            s.connect(self.sock)
-            for it in data:
-                if not it.get('enable', True):
-                    continue
-                lo = it.get('local', '')
-                if not lo:
-                    continue
-                if self.is_expired(it.get('expire', '')) or \
-                   (it.get('quota', 0) > 0 and
-                    it.get('used', 0) >= it.get('quota', 0) * 1024):
-                    s.sendall(
-                        f"shutdown sessions server be_{lo}/s{lo}\n".encode()
-                    )
-            s.close()
-        except Exception:
-            pass
-
         log.info(
             f"HAProxy reloaded: "
             f"{len([d for d in data if d.get('enable', True)])} active rules"
