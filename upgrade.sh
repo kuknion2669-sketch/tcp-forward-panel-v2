@@ -18,12 +18,12 @@ if [ "$BEHIND" -eq 0 ]; then
 fi
 echo "发现 $BEHIND 个新提交，开始升级..."
 
-if git status --porcelain | grep -qv '^??'; then
-  echo "暂存本地未提交修改..."
-  git stash push -m "pre-upgrade-$(date +%Y%m%d_%H%M%S)"
+if ! git diff --quiet || ! git diff --cached --quiet; then
+  echo "检测到已跟踪文件有本地修改，停止升级（未覆盖任何内容）"
+  exit 1
 fi
 
-git rebase origin/main 2>/dev/null || git reset --hard origin/main
+git merge --ff-only origin/main
 
 echo "== 更新依赖 =="
 if [ -x venv/bin/pip ]; then
@@ -38,6 +38,7 @@ echo "== 语法检查 =="
 
 echo "== 更新 systemd 服务 =="
 chmod +x start_panel.sh start_worker.sh
+sed "s|__PYTHON_CMD__|$PY|g" tcp-panel-v2.service > /etc/systemd/system/tcp-panel-v2.service
 mkdir -p /etc/systemd/system/tcp-panel-v2.service.d
 cp tcp-panel-v2.service.d-bg-split.conf /etc/systemd/system/tcp-panel-v2.service.d/bg-split.conf
 sed "s|__PYTHON_CMD__|$PY|g" tcp-panel-worker.service > /etc/systemd/system/tcp-panel-worker.service

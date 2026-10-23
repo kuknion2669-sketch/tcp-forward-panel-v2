@@ -9,6 +9,7 @@
 #   且 Web 侧设了 PANEL_BG_DISABLED=1（见 tcp-panel-v2.service.d/bg-split.conf），
 #   所以多 worker 是安全的。
 cd /root/tcp-panel-v2 || exit 1
+export PANEL_BG_DISABLED=1
 PYTHON="${PANEL_PYTHON:-python3}"
 PORT=$("$PYTHON" - <<'PYEOF'
 import sqlite3

@@ -381,15 +381,15 @@ body{background:var(--bg);color:var(--text);font:14px/1.6 -apple-system,BlinkMac
         {% else %}
           <span class="bdg bdg-off"><span class="dot dot-off" style="width:5px;height:5px"></span> 离线</span>
         {% endif %}
-        <button class="btn btn-ghost btn-xs" onclick="checkOne(this)" data-idx="{{ item._idx }}">检测</button>
-        <button class="btn btn-ghost btn-xs" onclick="editNode({{ item._idx }})">编辑</button>
+        <button class="btn btn-ghost btn-xs" onclick="checkOne(this)" data-idx="{{ item._idx }}" data-local="{{ item.local }}">检测</button>
+        <button class="btn btn-ghost btn-xs" onclick="editNode('{{ item.local|e }}')">编辑</button>
         <div class="toggle-btn" data-local="{{ item.local }}" data-enable="{{ 1 if item.enable else 0 }}" onclick="toggleSwitch(this)" style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;user-select:none">
           <span class="toggle-track" style="width:36px;height:20px;border-radius:10px;background:{% if item.enable %}rgba(59,130,246,.2){% else %}#1e293b{% endif %};border:1px solid {% if item.enable %}rgba(59,130,246,.4){% else %}#334155{% endif %};position:relative;transition:all .2s;flex-shrink:0;display:inline-block">
             <span style="position:absolute;top:2px;{% if item.enable %}left:18px;background:#3b82f6{% else %}left:2px;background:#64748b{% endif %};width:14px;height:14px;border-radius:50%;transition:all .2s;display:block"></span>
           </span>
           <span class="toggle-lbl" style="font-size:11px;color:{% if item.enable %}#3b82f6{% else %}#64748b{% endif %};min-width:2em">{% if item.enable %}启用{% else %}停用{% endif %}</span>
         </div>
-        <button class="btn btn-danger btn-xs" onclick="deleteNode({{ item._idx }}, this)" style="margin-left:12px">删除</button>
+        <button class="btn btn-danger btn-xs" onclick="deleteNode('{{ item.local|e }}', this)" style="margin-left:12px">删除</button>
       </div>
     </div>
   {% else %}
@@ -468,9 +468,9 @@ function closeModalBg(e){if(e.target===e.currentTarget)closeModal()}
 document.getElementById('addModal').addEventListener('click',closeModalBg)
 document.getElementById('editModal').addEventListener('click',closeModalBg)
 
-function editNode(idx){
-  var d=nodeData&&nodeData[idx];if(!d)return
-  document.getElementById('edit_idx').value=idx
+function editNode(local){
+  var d=nodeData&&nodeData.find(function(x){return String(x.local)===String(local)});if(!d)return
+  document.getElementById('edit_idx').value=d._idx
   document.getElementById('edit_name').value=d.name||''
   document.getElementById('edit_local').value=d.local||''
   document.getElementById('edit_ip').value=d.ip||''
@@ -492,10 +492,12 @@ function submitEdit(e){
   if(btn.disabled)return false
   var orig=btn.textContent
   btn.disabled=true;btn.textContent='保存中...'
-  var idx=document.getElementById('edit_idx').value
+  var d=nodeData[document.getElementById('edit_idx').value]
+  if(!d)return false
+  var local=d.local
   var form=document.getElementById('editForm')
   var data=new FormData(form)
-  fetch('/edit/'+idx,{method:'POST',body:data}).then(function(r){
+  fetch('/edit/'+encodeURIComponent(local),{method:'POST',body:data}).then(function(r){
     if(r.redirected)window.location.href=r.url
     else{btn.disabled=false;btn.textContent=orig;closeModal()}
   }).catch(function(){window.location.reload()})
@@ -503,9 +505,9 @@ function submitEdit(e){
 }
 
 function checkOne(btn){
-  var idx=btn.getAttribute('data-idx'),orig=btn.innerHTML;
+  var local=btn.getAttribute('data-local'),orig=btn.innerHTML;
   btn.disabled=true;btn.innerHTML='检测中...';
-  fetch('/check/'+idx).then(function(r){return r.json()}).then(function(d){
+  fetch('/check/'+encodeURIComponent(local)).then(function(r){return r.json()}).then(function(d){
     if(d.ok){btn.innerHTML='\u2705 '+d.ms+'ms';btn.style.color='#22c55e'}
     else{btn.innerHTML='\u274c 超时';btn.style.color='#ef4444';btn.title=d.error||''}
     setTimeout(function(){btn.innerHTML=orig;btn.style.color='';btn.disabled=false},5000)
@@ -531,11 +533,11 @@ function checkAll(){
   }).catch(function(){btn.textContent='Err';btn.disabled=false})
 }
 
-function deleteNode(idx,el){
+function deleteNode(local,el){
   if(!confirm('确定删除该节点？'))return
   var nd=el.closest('.node')
-  fetch('/del/'+idx).then(function(r){return r.json()}).then(function(d){
-    if(d.ok&&nd)nd.remove()
+  fetch('/del/'+encodeURIComponent(local)).then(function(r){return r.json()}).then(function(d){
+    if(d.ok)window.location.reload()
   }).catch(function(){})
 }
 

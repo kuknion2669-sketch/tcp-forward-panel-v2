@@ -1,14 +1,63 @@
 """HAProxy control - socket management, config generation, reload, validation"""
+import contextlib
+import hashlib
+import ipaddress
 import socket
 import subprocess
 import os
 import re
 import logging
+import sys
+import tempfile
 import time
 
 from config import RESERVED_PORTS
 
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - tests run on Windows, production is Linux
+    fcntl = None
+
 log = logging.getLogger('haproxy')
+
+
+def _valid_upstream_host(value):
+    """Accept an IP address or a conservative DNS hostname, never raw config."""
+    if not value or any(ch.isspace() for ch in value):
+        return False
+    try:
+        ipaddress.ip_address(value)
+        return True
+    except ValueError:
+        pass
+    if len(value) > 253:
+        return False
+    labels = value.rstrip('.').split('.')
+    return all(
+        1 <= len(label) <= 63
+        and re.fullmatch(r'[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?', label)
+        for label in labels
+    )
+
+
+def _rule_endpoint(item):
+    """Return validated ``(local_port, upstream_host:port)`` strings."""
+    loc = str(item.get('local', '')).strip()
+    host = str(item.get('ip', '')).strip()
+    port = str(item.get('port', '')).strip()
+    if not loc.isdigit() or not 1 <= int(loc) <= 65535:
+        raise ValueError("invalid local port")
+    if not _valid_upstream_host(host):
+        raise ValueError("invalid upstream host")
+    if not port.isdigit() or not 1 <= int(port) <= 65535:
+        raise ValueError("invalid upstream port")
+    endpoint = f"[{host}]:{port}" if ':' in host else f"{host}:{port}"
+    return loc, endpoint
+
+
+def validate_rule_target(local, host, port):
+    """Public validator used before a rule is written to SQLite."""
+    return _rule_endpoint({'local': local, 'ip': host, 'port': port})
 
 
 class HAProxyCtl:
@@ -25,6 +74,7 @@ class HAProxyCtl:
         # 2026-10-16: "在听端口全集"缓存（见 listening_ports / is_listening）
         self._listen_cache = None
         self._listen_ts = 0.0
+        self.applied_hash_file = '/run/tcp-panel-applied.sha256'
 
     def _sock_cmd(self, cmd):
         try:
@@ -61,36 +111,23 @@ class HAProxyCtl:
         return result
 
     def get_backend_stats(self):
-        """Get per-backend bin/bout, returns dict of port -> {bin, bout}"""
-        try:
-            raw = subprocess.getoutput(
-                f"echo 'show stat' | socat {self.sock} stdio 2>/dev/null"
-            )
-            stats = {}
-            for line in raw.strip().split('\n')[1:]:
-                parts = line.split(',')
-                if len(parts) < 10:
-                    continue
-                pxname = parts[0]
-                svname = parts[1]
-                if svname not in ('FRONTEND', 'BACKEND'):
-                    continue
-                if svname == 'FRONTEND':
-                    continue
-                port = pxname[3:] if pxname.startswith('be_') else ''
-                if not port or not port.isdigit():
-                    continue
-                try:
-                    stats[port] = {
-                        'bin': int(parts[8] or 0),
-                        'bout': int(parts[9] or 0)
-                    }
-                except Exception:
-                    pass
-            return stats
-        except Exception as e:
-            log.warning(f"get_backend_stats failed: {e}")
-            return {}
+        """Get per-backend bin/bout through the timeout-protected socket."""
+        stats = {}
+        for row in self.get_stats():
+            pxname = row.get('pxname', '')
+            if not pxname.startswith('be_'):
+                continue
+            port = pxname[3:]
+            if not port.isdigit():
+                continue
+            try:
+                stats[port] = {
+                    'bin': int(row.get('bin', 0) or 0),
+                    'bout': int(row.get('bout', 0) or 0),
+                }
+            except (TypeError, ValueError):
+                pass
+        return stats
 
     def get_api_stats(self):
         try:
@@ -114,7 +151,7 @@ class HAProxyCtl:
         except Exception as e:
             return {'ok': False, 'error': str(e)}
 
-    def server_status_map(self):
+    def server_status_map(self, force=False):
         """Return {local_port: bool} using HAProxy's authoritative status.
 
         A node is treated as ONLINE only when HAProxy reports its per-server
@@ -127,7 +164,8 @@ class HAProxyCtl:
         not hammer the stats socket on every request.
         """
         now = time.time()
-        if self._status_cache and now - self._status_cache_ts < 15:
+        if (not force and self._status_cache
+                and now - self._status_cache_ts < 15):
             return self._status_cache
 
         raw = self._sock_cmd('show stat')
@@ -291,31 +329,191 @@ class HAProxyCtl:
         from datetime import datetime, timedelta
         return str((datetime.now() + timedelta(days=30)).timestamp())
 
-    def validate_config(self, haproxy_cfg_str, tmp_path="/tmp/haproxy_validate.cfg"):
-        """Write config to a fixed temp path, then run haproxy -c to validate.
-        Uses a fixed path to avoid tempfile/subprocess edge cases."""
-        import os
+    def validate_config(self, haproxy_cfg_str):
+        """Validate with a unique temp file, safe under concurrent writers."""
+        tmp_path = ""
         try:
-            with open(tmp_path, 'w') as f:
+            with tempfile.NamedTemporaryFile(
+                    mode='w', suffix='.cfg', prefix='haproxy-validate-',
+                    delete=False, encoding='utf-8') as f:
+                tmp_path = f.name
                 f.write(haproxy_cfg_str)
             r = subprocess.run(
-                f'haproxy -c -f {tmp_path}',
-                shell=True, capture_output=True, timeout=10
+                ['haproxy', '-c', '-f', tmp_path],
+                capture_output=True, timeout=10,
             )
             try:
-                os.unlink(tmp_path)
+                if tmp_path:
+                    os.unlink(tmp_path)
             except Exception:
                 pass
             if r.returncode == 0:
                 return True, "ok"
-            return False, r.stderr.decode().strip()
+            return False, r.stderr.decode(errors='replace').strip()
         except Exception as e:
             try:
-                os.unlink(tmp_path)
+                if tmp_path:
+                    os.unlink(tmp_path)
             except Exception:
                 pass
             return False, str(e)
 
+    @contextlib.contextmanager
+    def _reload_lock(self):
+        """Serialize compile+write+reload across all web workers and CLI jobs."""
+        if fcntl is None:
+            yield
+            return
+        with open('/run/tcp-panel-haproxy.lock', 'w') as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(lock, fcntl.LOCK_UN)
+
+    def _write_config(self, text):
+        """Atomically replace the HAProxy config so no reader sees a partial file."""
+        path = self.config_file
+        directory = os.path.dirname(path) or '.'
+        fd, tmp_path = tempfile.mkstemp(
+            prefix='.haproxy-config-', dir=directory, text=True
+        )
+        try:
+            with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                f.write(text)
+                f.flush()
+                os.fsync(f.fileno())
+            os.chmod(tmp_path, 0o644)
+            os.replace(tmp_path, path)
+        finally:
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
+
+    def _config_hash(self, text):
+        return hashlib.sha256(text.encode('utf-8')).hexdigest()
+
+    def applied_config_matches(self, text):
+        """True only when this exact config was proven applied by a reload."""
+        try:
+            with open(self.applied_hash_file, encoding='ascii') as f:
+                return f.read().strip() == self._config_hash(text)
+        except OSError:
+            return False
+
+    def _mark_config_applied(self, text):
+        path = self.applied_hash_file
+        fd, tmp_path = tempfile.mkstemp(
+            prefix='.tcp-panel-applied-', dir=os.path.dirname(path), text=True
+        )
+        try:
+            with os.fdopen(fd, 'w', encoding='ascii') as f:
+                f.write(self._config_hash(text) + '\n')
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, path)
+        finally:
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
+
+    def _reserve_frontend_ports(self, ports):
+        """Prevent Linux ephemeral outbound sockets from stealing frontend ports."""
+        if not sys.platform.startswith('linux'):
+            return
+        reserved = set()
+        try:
+            with open('/proc/sys/net/ipv4/ip_local_reserved_ports',
+                      encoding='ascii') as f:
+                current = f.read().strip()
+            for part in current.split(','):
+                if not part:
+                    continue
+                if '-' in part:
+                    lo, hi = part.split('-', 1)
+                    reserved.update(range(int(lo), int(hi) + 1))
+                else:
+                    reserved.add(int(part))
+        except (OSError, ValueError):
+            current = ''
+        reserved.update(int(p) for p in ports if str(p).isdigit())
+        value = ','.join(str(p) for p in sorted(reserved))
+        try:
+            r = subprocess.run(
+                ['sysctl', '-w',
+                 f'net.ipv4.ip_local_reserved_ports={value}'],
+                capture_output=True, timeout=5,
+            )
+            if r.returncode != 0:
+                log.warning("Could not reserve frontend ports: %s",
+                            r.stderr.decode(errors='replace').strip())
+            with open('/etc/sysctl.d/99-tcp-panel-reserved.conf',
+                      'w', encoding='ascii') as f:
+                f.write(f"net.ipv4.ip_local_reserved_ports = {value}\n")
+        except Exception as e:  # noqa: BLE001
+            log.warning("Could not reserve frontend ports: %s", e)
+
+    def _haproxy_process_state(self):
+        """Return ``(master_pid, {worker_pids})`` for runtime reload checks."""
+        try:
+            out = subprocess.run(
+                ['systemctl', 'show', '-p', 'MainPID', '--value', 'haproxy'],
+                capture_output=True, text=True, timeout=3,
+            ).stdout.strip()
+            master = int(out) if out.isdigit() else 0
+        except Exception:
+            master = 0
+        workers = set()
+        if master:
+            try:
+                out = subprocess.run(
+                    ['pgrep', '-P', str(master), '-x', 'haproxy'],
+                    capture_output=True, text=True, timeout=3,
+                ).stdout
+                workers = {int(p) for p in out.split() if p.isdigit()}
+            except Exception:
+                pass
+        return master, workers
+
+    def _runtime_applied(self, expected_ports, previous_state):
+        """Wait until HAProxy has a new worker carrying every expected frontend."""
+        previous_master, previous_workers = previous_state
+        expected = {str(p) for p in expected_ports}
+        deadline = time.time() + 12
+        while time.time() < deadline:
+            master, workers = self._haproxy_process_state()
+            reloaded = (
+                (master and master != previous_master)
+                or bool(workers - previous_workers)
+            )
+            status = self.server_status_map(force=True)
+            if reloaded and expected.issubset(status):
+                new_workers = workers - previous_workers
+                time.sleep(0.5)
+                master_after, workers_after = self._haproxy_process_state()
+                status_after = self.server_status_map(force=True)
+                still_same_runtime = (
+                    master_after == master
+                    and (not new_workers or bool(new_workers & workers_after))
+                )
+                if still_same_runtime and expected.issubset(status_after):
+                    return True
+            time.sleep(0.25)
+        return False
+
+    def _restore_config(self, previous):
+        if previous is None:
+            try:
+                os.unlink(self.config_file)
+            except OSError:
+                pass
+            return
+        self._write_config(previous)
+        try:
+            subprocess.run(
+                ['systemctl', 'reload', 'haproxy'],
+                capture_output=True, timeout=15,
+            )
+        except Exception as e:  # noqa: BLE001
+            log.critical("Could not reload the previous HAProxy config: %s", e)
 
     def generate_config(self, data):
         """Build HAProxy config from database rules.
@@ -351,10 +549,13 @@ class HAProxyCtl:
             q = item.get('quota', 0)
             if q > 0 and item.get('used', 0) >= q * 1024:
                 continue
-            loc = item.get('local', '')
-            ip = item.get('ip', '')
-            prt = item.get('port', '')
-            if not loc or not ip or not prt:
+            try:
+                loc, endpoint = _rule_endpoint(item)
+            except ValueError as e:
+                raise ValueError(
+                    f"rule {item.get('name', '')!r} ({item.get('local', '')}): {e}"
+                ) from e
+            if not loc:
                 continue
             if loc in seen_locals:
                 dup_locals.setdefault(loc, [seen_locals[loc]]).append(
@@ -371,108 +572,67 @@ class HAProxyCtl:
             lines.append(f"backend be_{loc}")
             lines.append("    mode tcp")
             lines.append(
-                f"    server s{loc} {ip}:{prt} check inter 10s fall 3 rise 2"
+                f"    server s{loc} {endpoint} check inter 10s fall 3 rise 2"
             )
             lines.append("")
 
         return "\n".join(lines) + "\n", expected_ports, dup_locals
 
     def reload(self, data):
-        """Generate config, validate, reload via haproxy -sf, verify listening"""
-        cfg, expected_ports, dup_locals = self.generate_config(data)
+        """Validate, atomically write, reload, and prove the new worker is live."""
+        with self._reload_lock():
+            try:
+                cfg, expected_ports, dup_locals = self.generate_config(data)
+            except ValueError as e:
+                log.error("Config generation rejected: %s", e)
+                return False
 
-        # Refuse to write a config that binds the same local port twice:
-        # `haproxy -c` does not catch duplicate binds, and such a config makes
-        # HAProxy fail to start -> systemd restart loop -> every node on this
-        # host goes offline (2026-10-15 customer panel). Keep the running
-        # config untouched and let the caller show the error instead.
-        if dup_locals:
-            log.critical(
-                "Duplicate local ports %s - config NOT written, HAProxy left "
-                "untouched. Fix the duplicate rule first.", dup_locals
-            )
-            return False
-
-        # Validate config before writing
-        valid, err = self.validate_config(cfg)
-        if not valid:
-            log.error(f"Config validation error: {err}")
-            return False
-
-        # Write valid config
-        with open(self.config_file, 'w') as f:
-            f.write(cfg)
-
-        # Reload via haproxy -sf, NON-BLOCKING so the panel never blocks
-        # 15s and never leaves foreground/orphaned processes that time out.
-        # The old master is signalled to drain (-sf); haproxy-watchdog force-
-        # cleans drained/stale processes older than the grace window, so they
-        # can never accumulate (this host previously reached 42 processes).
-        try:
-            pid_raw = subprocess.getoutput(
-                'systemctl show -p MainPID --value haproxy 2>/dev/null'
-            ).strip()
-            if not pid_raw.isdigit():
-                pid_raw = subprocess.getoutput(
-                    'pgrep -x haproxy | sort -n | tail -1'
-                ).strip()
-            pid = pid_raw.split()[0] if pid_raw else ''
-            if pid and pid.isdigit():
-                subprocess.Popen(
-                    'systemctl reload haproxy >/dev/null 2>&1',
-                    shell=True, start_new_session=True,
-                )
-                log.info(
-                    f"Reload started via systemctl (signalling pid {pid})"
-                )
-            else:
-                log.warning(
-                    f"Invalid PID '{pid_raw}', falling back to restart"
-                )
-                subprocess.Popen(
-                    'systemctl restart haproxy >/dev/null 2>&1',
-                    shell=True, start_new_session=True,
-                )
-        except Exception as e:
-            log.error(f"Reload failed: {e}")
-            subprocess.Popen(
-                'systemctl restart haproxy >/dev/null 2>&1',
-                shell=True, start_new_session=True,
-            )
-
-        # Wait for HAProxy to settle
-        time.sleep(2)
-
-        # Validate: check every expected port is actually listening
-        # 2026-10-16: 一次取全集再比集合（force=True 绕开缓存，reload 后要看实时结果）。
-        # 老写法逐个 is_listening() = 198 次 netstat ≈ 18.5 秒，这就是"加节点要等 20 多秒"。
-        live_ports = self.listening_ports(force=True)
-        # ⚠️ expected_ports 里是**字符串**（来自 DB 的 TEXT 列），live_ports 是**整数**集合 ——
-        # 直接 `p not in live_ports` 会永远为真（2026-10-16 提速改动引入的坑：每次 reload 都误判
-        # "端口没起来" → 多做一次整机 restart）。这里统一成 int 再比。
-        missing_ports = sorted(p for p in expected_ports
-                               if str(p).isdigit() and int(p) not in live_ports)
-
-        if missing_ports:
-            log.error(
-                f"Reload validation FAILED: ports not listening: "
-                f"{missing_ports}"
-            )
-            # Try one more restart
-            subprocess.run(
-                'systemctl restart haproxy',
-                shell=True, capture_output=True, timeout=15
-            )
-            time.sleep(2)
-            live_ports = self.listening_ports(force=True)
-            still_missing = [p for p in missing_ports
-                             if str(p).isdigit() and int(p) not in live_ports]
-            if still_missing:
+            if dup_locals:
                 log.critical(
-                    f"Ports still missing after restart: {still_missing}. "
-                    f"Config may have duplicates or conflicts."
+                    "Duplicate local ports %s - config NOT written, HAProxy left "
+                    "untouched. Fix the duplicate rule first.", dup_locals
                 )
                 return False
+
+            valid, err = self.validate_config(cfg)
+            if not valid:
+                log.error("Config validation error: %s", err)
+                return False
+
+            self._reserve_frontend_ports(expected_ports)
+            try:
+                with open(self.config_file, encoding='utf-8') as f:
+                    previous = f.read()
+            except FileNotFoundError:
+                previous = None
+
+            previous_state = self._haproxy_process_state()
+            self._write_config(cfg)
+            try:
+                r = subprocess.run(
+                    ['systemctl', 'reload', 'haproxy'],
+                    capture_output=True, timeout=15,
+                )
+            except Exception as e:  # noqa: BLE001
+                log.error("HAProxy reload failed to start: %s", e)
+                self._restore_config(previous)
+                return False
+            if r.returncode != 0:
+                log.error(
+                    "HAProxy reload failed (%s): %s", r.returncode,
+                    r.stderr.decode(errors='replace').strip(),
+                )
+                self._restore_config(previous)
+                return False
+
+            if not self._runtime_applied(expected_ports, previous_state):
+                log.error(
+                    "HAProxy runtime did not adopt the new config within 12s; "
+                    "restoring previous config"
+                )
+                self._restore_config(previous)
+                return False
+            self._mark_config_applied(cfg)
 
         # Disable exhausted nodes
         try:

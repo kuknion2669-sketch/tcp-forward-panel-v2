@@ -40,7 +40,10 @@ def _now():
 def plan(db, haproxy, force=False):
     """算出该做什么。返回 dict（action = none / reload / error）。"""
     data = db.load()
-    cfg_text, expected_ports, dups = haproxy.generate_config(data)
+    try:
+        cfg_text, expected_ports, dups = haproxy.generate_config(data)
+    except ValueError as e:
+        return {"action": "error", "reason": str(e), "rules": len(data)}
     if dups:
         return {"action": "error",
                 "reason": "同一本地端口被多条规则占用：%s" % dups,
@@ -50,7 +53,10 @@ def plan(db, haproxy, force=False):
             current = fh.read()
     except FileNotFoundError:
         current = None
-    same = (current == cfg_text)
+    same = (
+        current == cfg_text
+        and haproxy.applied_config_matches(cfg_text)
+    )
     return {
         "action": "none" if (same and not force) else "reload",
         "rules": len(data),

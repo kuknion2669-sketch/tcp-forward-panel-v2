@@ -16,7 +16,7 @@ from logging.handlers import RotatingFileHandler
 
 from config import Config, RESERVED_PORTS
 from database import Database
-from haproxy_ctl import HAProxyCtl
+from haproxy_ctl import HAProxyCtl, validate_rule_target
 from check_mgr import CheckManager
 from stats_collector import StatsCollector
 
@@ -197,6 +197,13 @@ def is_sensitive_port(port_str):
     except (ValueError, TypeError):
         return False
 
+def valid_rule_target(local, ip, port):
+    try:
+        validate_rule_target(local, ip, port)
+        return True
+    except (TypeError, ValueError):
+        return False
+
 def enrich_item(item, idx, status_map):
     i = dict(item)
     i['_idx'] = idx
@@ -234,8 +241,6 @@ def index():
     group_filter = request.args.get('group', '')
     view = request.args.get('view', 'groups') if not group_filter else 'detail'
     
-    stats.update()
-    stats.record()
     data = db.load()
     status_map = haproxy.server_status_map()
     enriched = [enrich_item(it, i, status_map) for i, it in enumerate(data)]
@@ -329,32 +334,46 @@ def add():
     # respect it: a port that merely is not listening right now (HAProxy down /
     # reloading) is NOT free, it just looks free - that is how two rules ended
     # up on 10000 and HAProxy stopped starting (2026-10-15).
-    data = db.load()
-    taken = [d['local'] for d in data if d.get('local')]
-    if local and is_sensitive_port(local):
-        free = haproxy.free_port(taken)
-        return redirect(request.referrer + '?msg=sensitive_port&free=' + free)
-    if not local:
-        local = haproxy.free_port(taken)
+    with db.locked():
+        data = db.load()
+        taken = [d['local'] for d in data if d.get('local')]
+        if local and is_sensitive_port(local):
+            free = haproxy.free_port(taken)
+            return redirect(
+                (request.referrer or '/')
+                + '?msg=sensitive_port&free=' + free
+            )
         if not local:
-            return redirect(request.referrer + '?msg=no_free_port')
-    else:
-        if local in taken:
-            if is_sensitive_port(local):
-                local = haproxy.free_port(taken)
-                return redirect(request.referrer + "?msg=sensitive_port")
             local = haproxy.free_port(taken)
-            return redirect(request.referrer + "?msg=port_taken&free=" + local)
-    expire = haproxy.parse_expire(request.form.get('expire', '').strip())
-    quota_raw = request.form.get('quota', '').strip()
-    quota = 0.0 if quota_raw in ('', '0') else float(quota_raw)
-    
-    note = request.form.get('note', '').strip()
-    group = request.form.get('group_name', '').strip()
-    data.append({'name': name, 'local': local, 'ip': ip, 'port': port,
-                 'expire': expire, 'quota': quota, 'used': 0, 'enable': True,
-                 'note': note, 'group_name': group})
-    db.save(data)
+            if not local:
+                return redirect((request.referrer or '/') + '?msg=no_free_port')
+        else:
+            if local in taken:
+                if is_sensitive_port(local):
+                    local = haproxy.free_port(taken)
+                    return redirect(
+                        (request.referrer or '/') + "?msg=sensitive_port"
+                    )
+                local = haproxy.free_port(taken)
+                return redirect(
+                    (request.referrer or '/') + "?msg=port_taken&free=" + local
+                )
+        if not valid_rule_target(local, ip, port):
+            return redirect((request.referrer or '/') + "?msg=invalid_target")
+        expire = haproxy.parse_expire(request.form.get('expire', '').strip())
+        quota_raw = request.form.get('quota', '').strip()
+        try:
+            quota = 0.0 if quota_raw in ('', '0') else float(quota_raw)
+        except ValueError:
+            return redirect((request.referrer or '/') + "?msg=invalid_quota")
+
+        note = request.form.get('note', '').strip()
+        group = request.form.get('group_name', '').strip()
+        data.append({'name': name, 'local': local, 'ip': ip, 'port': port,
+                     'expire': expire, 'quota': quota, 'used': 0, 'enable': True,
+                     'note': note, 'group_name': group})
+        if not db.save(data):
+            return "保存规则失败", 500
     apply_desired(data)
     log.info(f"Added rule: {name} ({local} -> {ip}:{port})")
     db.log_event(local, name, "add", f"add: {local} -> {ip}:{port}")
@@ -364,61 +383,86 @@ def add():
 @login_required
 def batch_add():
     text = request.form.get('batch_data', '')
-    rules = []
-    taken = [d['local'] for d in db.load() if d.get('local')]
-    for line in text.strip().split('\n'):
-        if not line or line.startswith('#'): continue
-        parts = line.strip().split(':')
-        if len(parts) < 4: continue
-        name, local, ip, rport = parts[0], parts[1].strip(), parts[2], parts[3]
-        ep = parts[4].strip() if len(parts) > 4 else ""
-        qp = parts[5].strip() if len(parts) > 5 else ""
-        if not name or not ip or not rport or not rport.isdigit(): continue
-        if local and not local.isdigit(): continue
-        if local and is_sensitive_port(local): continue
-        if not local:
-            local = haproxy.free_port(taken)
-            if not local: continue
+    with db.locked():
+        rules = []
+        data = db.load()
+        taken = [d['local'] for d in data if d.get('local')]
+        for line in text.strip().split('\n'):
+            if not line or line.startswith('#'):
+                continue
+            parts = line.strip().split(':')
+            if len(parts) < 4:
+                continue
+            name, local, ip, rport = (
+                parts[0], parts[1].strip(), parts[2], parts[3].strip()
+            )
+            ep = parts[4].strip() if len(parts) > 4 else ""
+            qp = parts[5].strip() if len(parts) > 5 else ""
+            if not name or not ip or not rport:
+                continue
+            if local and (not local.isdigit() or is_sensitive_port(local)):
+                continue
+            if not local:
+                local = haproxy.free_port(taken)
+                if not local:
+                    continue
+                taken.append(local)
+            elif local in taken:
+                continue
+            if not valid_rule_target(local, ip, rport):
+                continue
+            try:
+                quota = 0.0 if qp in ('', '0') else float(qp)
+            except ValueError:
+                continue
+            expire = haproxy.parse_expire(ep)
+            rules.append({'name': name, 'local': local, 'ip': ip, 'port': rport,
+                          'expire': expire, 'quota': quota, 'used': 0,
+                          'enable': True, 'group_name': '', 'note': ''})
             taken.append(local)
-        elif local in taken:
-            continue
-        quota = 0.0 if qp in ('', '0') else float(qp)
-        expire = haproxy.parse_expire(ep)
-        rules.append({'name': name, 'local': local, 'ip': ip, 'port': rport,
-                      'expire': expire, 'quota': quota, 'used': 0, 'enable': True,
-                      'group_name': '', 'note': ''})
-    data = db.load()
-    for r in rules:
-        if any(i['local'] == r['local'] for i in data): continue
-        data.append(r)
-    db.save(data)
+        for r in rules:
+            if any(i['local'] == r['local'] for i in data):
+                continue
+            data.append(r)
+        if not db.save(data):
+            return "批量保存规则失败", 500
     apply_desired(data)
     log.info(f"Batch added {len(rules)} rules")
     db.log_event("", "", "batch_add", f"batch add: {len(rules)} rules")
     return redirect(request.referrer or '/')
 
-@app.route('/del/<int:idx>')
+@app.route('/del/<local>')
 @login_required
-def delete(idx):
-    data = db.load()
-    ok = 0 <= idx < len(data)
-    local = ''
-    name = ''
+def delete(local):
+    with db.locked():
+        data = db.load()
+        idx = next(
+            (i for i, d in enumerate(data) if str(d.get('local')) == local),
+            None,
+        )
+        ok = idx is not None
+        name = ''
+        if ok:
+            name = data[idx].get('name', '')
+            del data[idx]
+            stats.clear_last(local)
+            ok = db.save(data)
     if ok:
-        name = data[idx].get('name', '')
-        local = data[idx].get('local', '')
-        del data[idx]
-        stats.clear_last(local)
-        db.save(data)
         apply_desired(data)
         log.info(f"Deleted rule #{idx}: {name}")
     db.log_event(local, name, "delete", f"delete: {local}")
     return jsonify({'ok': ok})
 
-@app.route('/check/<int:idx>')
+@app.route('/check/<local>')
 @login_required
-def check_node(idx):
+def check_node(local):
     data = db.load()
+    idx = next(
+        (i for i, d in enumerate(data) if str(d.get('local')) == local),
+        None,
+    )
+    if idx is None:
+        return jsonify({'ok': False, 'error': 'not found'})
     result = checker.check_one(idx, data)
     return jsonify(result)
 
@@ -450,32 +494,48 @@ def api_haproxy():
     result = haproxy.get_api_stats()
     return jsonify(result)
 
-@app.route('/edit/<int:idx>', methods=['GET', 'POST'])
+@app.route('/edit/<local>', methods=['GET', 'POST'])
 @login_required
-def edit(idx):
-    data = db.load()
-    if idx < 0 or idx >= len(data):
-        return redirect('/')
-    item = dict(data[idx])
-    if request.method == 'POST':
+def edit(local):
+    with db.locked():
+        data = db.load()
+        idx = next(
+            (i for i, d in enumerate(data) if str(d.get('local')) == local),
+            None,
+        )
+        if idx is None:
+            return redirect('/')
+        item = dict(data[idx])
+        if request.method != 'POST':
+            exp_dt = ''
+            if item.get('expire'):
+                try:
+                    exp_dt = datetime.fromtimestamp(
+                        float(item['expire'])
+                    ).strftime('%Y-%m-%dT%H:%M')
+                except (TypeError, ValueError, OSError):
+                    pass
+            return render_template('edit.html', item=item, expire=exp_dt)
+
         old = data[idx]
         auto_assigned = ''
         new_local = request.form.get('local', '').strip()
         new_name = request.form.get('name', '').strip()
         new_ip = request.form.get('ip', '').strip()
         new_port = request.form.get('port', '').strip()
-        new_q = float(request.form.get('quota', 0)) if request.form.get('quota', '').strip() else old.get('quota', 0)
+        quota_raw = request.form.get('quota', '').strip()
+        try:
+            new_q = float(quota_raw) if quota_raw else old.get('quota', 0)
+        except ValueError:
+            return redirect(request.referrer or '/')
         if not new_name or not new_ip or not new_port:
             return redirect(request.referrer or '/')
-        if not new_local.isdigit() or not new_port.isdigit():
-            return redirect(request.referrer or '/')
-        # Ports owned by the OTHER rules; auto-picked ports must avoid them even
-        # when HAProxy is down and nothing is listening (2026-10-15 incident).
         taken = [o.get('local') for oi, o in enumerate(data)
                  if oi != idx and o.get('local')]
+        if not new_local.isdigit():
+            return redirect(request.referrer or '/')
         if new_local != old.get("local", "") and is_sensitive_port(new_local):
-            free = haproxy.free_port(taken)
-            new_local = free
+            new_local = haproxy.free_port(taken)
             auto_assigned = 'sensitive'
         if new_local in taken:
             free = haproxy.free_port(taken)
@@ -483,47 +543,47 @@ def edit(idx):
                 return redirect("/?ecode=no_free_port")
             new_local = free
             auto_assigned = 'occupied'
+        if not valid_rule_target(new_local, new_ip, new_port):
+            return redirect(request.referrer or '/')
         ne = request.form.get('expire', '').strip()
         expire = haproxy.parse_expire(ne)
         new_note = request.form.get('note', '').strip()
         new_group = request.form.get('group_name', '').strip()
         old_local = old.get('local', '')
         if new_local != old_local:
-            # Port changed: the old backend's counter baseline is gone once
-            # HAProxy reloads; drop it so a reused port starts clean instead of
-            # inheriting a stale baseline (duplicate / lost delta).
             stats.clear_last(old_local)
             stats.clear_last(new_local)
         old.update({'name': new_name, 'local': new_local, 'ip': new_ip,
                     'port': new_port, 'expire': expire, 'quota': new_q,
                     'note': new_note, 'group_name': new_group})
-        db.save(data)
-        apply_desired(data)
-        log.info(f"Edited rule #{idx}: {new_name}")
-        db.log_event(new_local, new_name, "edit", f"edit: {new_local}")
-        if auto_assigned:
-            return redirect("/?ecode=" + auto_assigned + "&free=" + new_local)
-        return redirect(request.referrer or '/')
-    exp_dt = ''
-    if item.get('expire'):
-        try: exp_dt = datetime.fromtimestamp(float(item['expire'])).strftime('%Y-%m-%dT%H:%M')
-        except: pass
-    return render_template('edit.html', item=item, expire=exp_dt)
+        if not db.save(data):
+            return "保存规则失败", 500
+    apply_desired(data)
+    log.info(f"Edited rule #{idx}: {new_name}")
+    db.log_event(new_local, new_name, "edit", f"edit: {new_local}")
+    if auto_assigned:
+        return redirect("/?ecode=" + auto_assigned + "&free=" + new_local)
+    return redirect(request.referrer or '/')
 
-@app.route('/reset_quota/<int:idx>')
+@app.route('/reset_quota/<local>')
 @login_required
-def reset_quota(idx):
-    data = db.load()
-    local = ''
-    rname = ''
-    if 0 <= idx < len(data):
-        local = data[idx].get('local', '')
-        rname = data[idx].get('name', '')
-        data[idx]['used'] = 0
-        data[idx]['used_in'] = 0
-        data[idx]['used_out'] = 0
-        data[idx]['enable'] = True
-        db.save(data)
+def reset_quota(local):
+    with db.locked():
+        data = db.load()
+        idx = next(
+            (i for i, d in enumerate(data) if str(d.get('local')) == local),
+            None,
+        )
+        rname = ''
+        if idx is not None:
+            rname = data[idx].get('name', '')
+            data[idx]['used'] = 0
+            data[idx]['used_in'] = 0
+            data[idx]['used_out'] = 0
+            data[idx]['enable'] = True
+            if not db.save(data):
+                return "重置配额失败", 500
+    if idx is not None:
         stats.clear_last(local)
         apply_desired(data)
         log.info(f"Reset quota for #{idx}: {rname}")
@@ -547,28 +607,38 @@ def restart_node(local):
 @app.route('/api/toggle/<local>', methods=['POST'])
 @login_required
 def api_toggle(local):
-    data = db.load()
-    for item in data:
-        if item.get('local') == local:
-            item['enable'] = not item.get('enable', True)
-            enabled = item['enable']
-            db.save(data)
-            # Use HAProxy socket to enable/disable without full reload
-            try:
-                s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-                s.settimeout(3)
-                s.connect(haproxy.sock)
-                cmd = f"enable server be_{local}/s{local}\n" if enabled else f"disable server be_{local}/s{local}\n"
-                s.sendall(cmd.encode())
-                s.close()
-                log.info(f"Toggle {local}: {'enabled' if enabled else 'disabled'} via socket")
-                db.log_event(local, item.get("name",""), "toggle", f"toggle: {local} {'enabled' if enabled else 'disabled'}")
-            except Exception as e:
-                log.warning(f"Socket toggle failed for {local}: {e}, falling back to reload")
-                apply_desired(data)
-            return jsonify({'ok': True, 'enable': enabled})
-    api_v3_reload()
-    return jsonify({'ok': False})
+    with db.locked():
+        data = db.load()
+        item = next(
+            (d for d in data if str(d.get('local')) == local),
+            None,
+        )
+        if item is None:
+            return jsonify({'ok': False, 'error': 'not found'}), 404
+        item['enable'] = not item.get('enable', True)
+        enabled = item['enable']
+        if not db.save(data):
+            return jsonify({'ok': False, 'error': 'save failed'}), 500
+    # Use HAProxy socket to enable/disable without a full config reload.
+    try:
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        s.settimeout(3)
+        s.connect(haproxy.sock)
+        cmd = (f"enable server be_{local}/s{local}\n" if enabled
+               else f"disable server be_{local}/s{local}\n")
+        s.sendall(cmd.encode())
+        s.close()
+        log.info(f"Toggle {local}: {'enabled' if enabled else 'disabled'} via socket")
+        db.log_event(
+            local, item.get("name", ""), "toggle",
+            f"toggle: {local} {'enabled' if enabled else 'disabled'}",
+        )
+    except Exception as e:
+        log.warning(
+            f"Socket toggle failed for {local}: {e}, falling back to reload"
+        )
+        apply_desired(data)
+    return jsonify({'ok': True, 'enable': enabled})
 
 @app.route('/backup')
 @login_required
@@ -706,14 +776,12 @@ def audit():
 @app.route('/api/reset_traffic', methods=['POST'])
 @login_required
 def reset_traffic():
-    data = db.load()
-    for d in data:
-        d['used'] = 0
-        d['used_in'] = 0
-        d['used_out'] = 0
-    db.save(data)
-    stats.last_traffic.clear()
-    stats.save_last_state()
+    with db.locked():
+        if not db.reset_usage():
+            return jsonify({'ok': False, 'error': 'reset failed'}), 500
+        data = db.load()
+        stats.last_traffic.clear()
+        stats.save_last_state()
     try:
         import subprocess as _sp
         _sp.run('iptables -Z', shell=True, timeout=10)
@@ -735,62 +803,79 @@ def api_v3_add():
     name = (body.get("name") or "").strip()
     ip = (body.get("ip") or "").strip()
     port = str(body.get("port") or "").strip()
-    if not name or not ip or not port: return jsonify({"error": "name, ip, port required"}), 400
+    if not name or not ip or not port:
+        return jsonify({"error": "name, ip, port required"}), 400
     local = str(body.get("local") or "").strip()
-    data = db.load()
-    taken = [d["local"] for d in data if d.get("local")]
-    if not local or not local.isdigit():
-        local = haproxy.free_port(taken)
-        if not local:
-            return jsonify({"error": "no free local port"}), 500
-    elif is_sensitive_port(local):
-        return jsonify({"error": "sensitive port"}), 400
-    elif local in taken:
-        local = haproxy.free_port(taken)
-        if not local:
-            return jsonify({"error": "no free local port"}), 500
-    else:
-        existing = [d["local"] for d in data if d.get("local")]
-        if local in existing: local = haproxy.free_port()
-    expire = haproxy.parse_expire(body.get("expire", ""))
-    quota_raw = body.get("quota", "")
-    quota = 0.0 if quota_raw in ("", 0, "0") else float(quota_raw)
-    note = (body.get("note") or "") or ""
-    group = (body.get("group_name") or "") or ""
-    data.append({
-        "name": name, "local": local, "ip": ip, "port": port,
-        "expire": expire, "quota": quota, "used": 0, "enable": True,
-        "note": note, "group_name": group
-    })
-    db.save(data)
+    with db.locked():
+        data = db.load()
+        taken = [d["local"] for d in data if d.get("local")]
+        if not local or not local.isdigit():
+            local = haproxy.free_port(taken)
+            if not local:
+                return jsonify({"error": "no free local port"}), 500
+        elif is_sensitive_port(local):
+            return jsonify({"error": "sensitive port"}), 400
+        elif local in taken:
+            local = haproxy.free_port(taken)
+            if not local:
+                return jsonify({"error": "no free local port"}), 500
+        if not valid_rule_target(local, ip, port):
+            return jsonify({"error": "invalid IP/port"}), 400
+        expire = haproxy.parse_expire(body.get("expire", ""))
+        quota_raw = body.get("quota", "")
+        try:
+            quota = 0.0 if quota_raw in ("", 0, "0") else float(quota_raw)
+        except (TypeError, ValueError):
+            return jsonify({"error": "invalid quota"}), 400
+        note = body.get("note") or ""
+        group = body.get("group_name") or ""
+        data.append({
+            "name": name, "local": local, "ip": ip, "port": port,
+            "expire": expire, "quota": quota, "used": 0, "enable": True,
+            "note": note, "group_name": group
+        })
+        if not db.save(data):
+            return jsonify({"error": "save failed"}), 500
     apply_desired(data)
     db.log_event(local, name, "add", "v3 add: %s -> %s:%s" % (local, ip, port))
     return jsonify({"status": "ok", "local": local})
 
 @app.route("/api/v3/del/<local>", methods=["POST"])
 def api_v3_del(local):
-    data = db.load()
-    idx = next((i for i, d in enumerate(data) if d.get("local") == local), None)
-    if idx is None: return jsonify({"error": "not found"}), 404
-    name = data[idx].get("name", "")
-    data.pop(idx)
-    stats.clear_last(local)
-    db.save(data)
+    with db.locked():
+        data = db.load()
+        idx = next(
+            (i for i, d in enumerate(data) if str(d.get("local")) == local),
+            None,
+        )
+        if idx is None:
+            return jsonify({"error": "not found"}), 404
+        name = data[idx].get("name", "")
+        data.pop(idx)
+        stats.clear_last(local)
+        if not db.save(data):
+            return jsonify({"error": "save failed"}), 500
     apply_desired(data)
     db.log_event(local, name, "delete", "v3 delete: %s" % local)
     return jsonify({"status": "ok"})
 
 @app.route("/api/v3/toggle/<local>", methods=["POST"])
 def api_v3_toggle(local):
-    data = db.load()
-    for d in data:
-        if d.get("local") == local:
-            d["enable"] = not d.get("enable", True)
-            db.save(data)
-            apply_desired(data)
-            status = "enabled" if d["enable"] else "disabled"
-            db.log_event(local, d.get("name", ""), "toggle", "v3 %s" % status)
-            return jsonify({"status": status})
+    with db.locked():
+        data = db.load()
+        item = next(
+            (d for d in data if str(d.get("local")) == local),
+            None,
+        )
+        if item is not None:
+            item["enable"] = not item.get("enable", True)
+            if not db.save(data):
+                return jsonify({"error": "save failed"}), 500
+    if item is not None:
+        apply_desired(data)
+        status = "enabled" if item["enable"] else "disabled"
+        db.log_event(local, item.get("name", ""), "toggle", "v3 %s" % status)
+        return jsonify({"status": status})
     return jsonify({"error": "not found"}), 404
 
 @app.route("/api/v3/reload", methods=["POST"])

@@ -40,7 +40,7 @@ wait_apt_lock() {
   done
 
   # 超时 — 强制杀锁
-  warn "apt 锁等待超时 ($timeout 秒)，强制清理..."
+  info "apt 锁等待超时 ($timeout 秒)，强制清理..."
   for lock in "${locks[@]}"; do
     fuser -k "$lock" 2>/dev/null || true
   done
@@ -71,6 +71,9 @@ apt install -y python3 python3-pip haproxy socat git net-tools
 
 # ── 克隆仓库 ──
 info "克隆面板代码..."
+if [ -d /root/tcp-panel-v2/.git ]; then
+  err "检测到已有安装；升级请运行 /root/tcp-panel-v2/upgrade.sh，禁止直接重装覆盖"
+fi
 cd /root
 rm -rf tcp-panel-v2 2>/dev/null || true
 git clone https://github.com/kuknion2669-sketch/tcp-forward-panel-v2.git tcp-panel-v2

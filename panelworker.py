@@ -70,52 +70,83 @@ def main():
     try:
         import panel            # 复用面板自己的 db/haproxy/stats 与内部逻辑
         import reconcile
-
-        # 1) 流量统计（dry-run 时只 load，不动库）
+    except Exception as e:                                    # noqa: BLE001
+        log.exception("worker 初始化失败")
+        rec["error"] = str(e)[:300]
+    else:
+        # Each phase is isolated: a stats failure must never block desired-state
+        # reconciliation, because a missed reconcile means newly added ports stay offline.
         if args.dry_run:
             rec["stats"] = "skipped(dry-run)"
         else:
-            panel.stats.update()
-            panel.stats.record()
-            rec["stats"] = "ok"
+            try:
+                panel.stats.update()
+                panel.stats.record()
+                rec["stats"] = "ok"
+            except Exception as e:                            # noqa: BLE001
+                log.exception("流量统计失败")
+                rec["stats"] = f"error: {e}"[:300]
+                rec.setdefault("error", rec["stats"])
 
-        # 2) 自动停用（超配额 / 过期）
         if args.dry_run:
             rec["enforce"] = "skipped(dry-run)"
         else:
-            panel._enforce_auto_disable(panel.db.load())
-            rec["enforce"] = "ok"
+            try:
+                panel._enforce_auto_disable(panel.db.load())
+                rec["enforce"] = "ok"
+            except Exception as e:                            # noqa: BLE001
+                log.exception("自动停用失败")
+                rec["enforce"] = f"error: {e}"[:300]
+                rec.setdefault("error", rec["enforce"])
 
         if args.stats_only:
             rec["reconcile"] = "skipped(--stats-only)"
         else:
-            # 3) 对账：最多连做 LOOP_MAX 次直到"配置 = 期望"（页面刚写完的情况）
             acts = []
-            for _ in range(LOOP_MAX):
-                p = reconcile.plan(panel.db, panel.haproxy)
-                if p["action"] == "none":
-                    break
-                if args.dry_run:
-                    acts.append({k: p[k] for k in ("action", "rules",
-                                                   "expected_ports",
-                                                   "config_identical")})
-                    break
-                ok, detail = reconcile.apply_plan(panel.db, panel.haproxy, p)
-                acts.append({"action": p["action"], "ok": ok, "detail": detail})
-                reconcile.write_state({
-                    "at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    "action": p["action"], "rules": p["rules"],
-                    "expected_ports": p["expected_ports"],
-                    "config_identical": p["config_identical"],
-                    "dry_run": False, "ok": ok, "detail": detail,
-                    "by": "panelworker",
-                })
-                if not ok:
-                    break
+            try:
+                # 最多连做几次，吸收页面写入与对账并发造成的短暂差异。
+                for _ in range(LOOP_MAX):
+                    p = reconcile.plan(panel.db, panel.haproxy)
+                    if p["action"] == "none":
+                        reconcile.write_state({
+                            "at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                            "action": "none", "rules": p.get("rules"),
+                            "expected_ports": p.get("expected_ports"),
+                            "config_identical": True, "dry_run": False,
+                            "ok": True, "detail": "配置与已应用状态一致",
+                            "by": "panelworker",
+                        })
+                        break
+                    if args.dry_run:
+                        acts.append({
+                            "action": p["action"],
+                            "rules": p.get("rules"),
+                            "expected_ports": p.get("expected_ports"),
+                            "config_identical": p.get("config_identical"),
+                            "reason": p.get("reason"),
+                        })
+                        break
+                    ok, detail = reconcile.apply_plan(
+                        panel.db, panel.haproxy, p
+                    )
+                    acts.append({
+                        "action": p["action"], "ok": ok, "detail": detail
+                    })
+                    reconcile.write_state({
+                        "at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        "action": p["action"], "rules": p.get("rules"),
+                        "expected_ports": p.get("expected_ports"),
+                        "config_identical": p.get("config_identical"),
+                        "dry_run": False, "ok": ok, "detail": detail,
+                        "by": "panelworker",
+                    })
+                    if not ok:
+                        break
+            except Exception as e:                            # noqa: BLE001
+                log.exception("对账失败")
+                acts.append({"action": "error", "ok": False, "detail": str(e)[:300]})
+                rec.setdefault("error", str(e)[:300])
             rec["reconcile"] = acts or [{"action": "none"}]
-    except Exception as e:                                    # noqa: BLE001
-        log.exception("worker 出错")
-        rec["error"] = str(e)[:300]
     finally:
         rec["duration_s"] = round(time.time() - t0, 3)
         try:

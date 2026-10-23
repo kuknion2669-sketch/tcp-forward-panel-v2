@@ -47,36 +47,45 @@ class StatsCollector:
         if not cur:
             return
 
-        data = self.db.load()
-        changed = False
+        with self.db.locked():
+            data = self.db.load()
+            changed = False
+            new_last = dict(self.last_traffic)
 
-        for item in data:
-            p = item.get('local')
-            if not p or p not in cur:
-                continue
-            prev = self.last_traffic.get(p)
-            c = cur[p]
+            for item in data:
+                p = item.get('local')
+                if not p or p not in cur:
+                    continue
+                prev = self.last_traffic.get(p)
+                c = cur[p]
 
-            if not prev:
-                # First run: just save current cumulative as baseline
-                # Don't modify used values (they keep existing DB state)
-                pass
-            else:
-                d_in = c['bin'] - prev['bin']
-                d_out = c['bout'] - prev['bout']
-                if d_in >= 0 and d_out >= 0:
-                    if d_in > 10*1024*1024*1024 or d_out > 10*1024*1024*1024:
-                        log.warning(f"Large delta {p}: +{d_in/1024/1024:.1f}MB in, +{d_out/1024/1024:.1f}MB out (sanity check)")
-                    item['used_in'] = round(item.get('used_in', 0) + d_in / (1024*1024), 1)
-                    item['used_out'] = round(item.get('used_out', 0) + d_out / (1024*1024), 1)
-                    item['used'] = round(item.get('used_in', 0) + item.get('used_out', 0), 1)
-                    changed = True
-            self.last_traffic[p] = c
+                if prev:
+                    d_in = c['bin'] - prev['bin']
+                    d_out = c['bout'] - prev['bout']
+                    if d_in >= 0 and d_out >= 0:
+                        if (d_in > 10*1024*1024*1024
+                                or d_out > 10*1024*1024*1024):
+                            log.warning(
+                                f"Large delta {p}: +{d_in/1024/1024:.1f}MB in, "
+                                f"+{d_out/1024/1024:.1f}MB out (sanity check)"
+                            )
+                        item['used_in'] = round(
+                            item.get('used_in', 0) + d_in / (1024*1024), 1
+                        )
+                        item['used_out'] = round(
+                            item.get('used_out', 0) + d_out / (1024*1024), 1
+                        )
+                        item['used'] = round(
+                            item.get('used_in', 0) + item.get('used_out', 0), 1
+                        )
+                        changed = True
+                new_last[p] = c
 
-        if changed:
-            self.db.save(data)
+            if changed and not self.db.save_usage(data):
+                return
+            self.last_traffic = new_last
+            self.save_last_state()
 
-        self.save_last_state()
         self.record()
 
         # Auto-disable quota-exhausted OR expired nodes

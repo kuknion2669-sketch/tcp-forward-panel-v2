@@ -8,6 +8,7 @@ Type=simple
 User=root
 WorkingDirectory=/root/tcp-panel-v2
 Environment="PANEL_PYTHON=__PYTHON_CMD__"
+Environment="PANEL_BG_DISABLED=1"
 ExecStart=/root/tcp-panel-v2/start_panel.sh
 Restart=always
 RestartSec=5

@@ -1,7 +1,14 @@
 """Database operations - all SQLite access centralized here"""
+import contextlib
+import os
 import sqlite3
 import hashlib
 import logging
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - production is Linux
+    fcntl = None
 
 log = logging.getLogger('db')
 
@@ -19,6 +26,22 @@ class Database:
         except Exception as e:
             log.warning(f"DB PRAGMA failed: {e}")
         return conn
+
+    @contextlib.contextmanager
+    def locked(self):
+        """Serialize read-modify-write operations across web and worker processes."""
+        if fcntl is None:
+            yield
+            return
+        path = ('/run/tcp-panel-db.lock'
+                if os.path.abspath(self.db_file) == '/root/traffic.db'
+                else self.db_file + '.lock')
+        with open(path, 'w') as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(lock, fcntl.LOCK_UN)
 
     def _init_db(self):
         conn = self._connect()
@@ -62,6 +85,13 @@ class Database:
                 log.info("Migration: added group_name column")
         except Exception as e:
             log.warning(f"Migration: could not add group_name - {e}")
+        try:
+            c.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_rules_local_unique "
+                "ON rules(local)"
+            )
+        except sqlite3.IntegrityError as e:
+            log.critical("Duplicate local ports prevent the unique index: %s", e)
         conn.commit()
         conn.close()
 
@@ -75,6 +105,7 @@ class Database:
         return rows
 
     def save(self, data):
+        conn = None
         try:
             conn = self._connect()
             c = conn.cursor()
@@ -87,10 +118,45 @@ class Database:
                      item.get('used', 0), item.get('used_in', 0), item.get('used_out', 0),
                      1 if item.get('enable', True) else 0, item.get('note', ''), item.get('group_name', '')))
             conn.commit()
-            conn.close()
             return True
         except Exception as e:
             log.error(f"Save failed: {e}")
+            return False
+        finally:
+            if conn is not None:
+                conn.close()
+
+    def save_usage(self, data):
+        """Update only traffic counters, never overwrite concurrent rule edits."""
+        try:
+            conn = self._connect()
+            c = conn.cursor()
+            for item in data:
+                where = "id=?" if item.get("id") is not None else "local=?"
+                key = item.get("id", item.get("local", ""))
+                c.execute(
+                    "UPDATE rules SET used=?, used_in=?, used_out=? WHERE " + where,
+                    (item.get("used", 0), item.get("used_in", 0),
+                     item.get("used_out", 0), key),
+                )
+            conn.commit()
+            conn.close()
+            return True
+        except Exception as e:
+            log.error("save_usage failed: %s", e)
+            return False
+
+    def reset_usage(self):
+        try:
+            conn = self._connect()
+            conn.execute(
+                "UPDATE rules SET used=0, used_in=0, used_out=0"
+            )
+            conn.commit()
+            conn.close()
+            return True
+        except Exception as e:
+            log.error("reset_usage failed: %s", e)
             return False
 
     def set_enable(self, local, enable):
