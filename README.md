@@ -100,6 +100,32 @@ LimitNOFILE=65535
 WantedBy=multi-user.target
 ```
 
+### TCP 空闲与 FIN 半关闭超时
+
+面板生成的 HAProxy `defaults` 默认使用：
+
+```text
+timeout connect 5000ms
+timeout client 1m
+timeout server 1m
+timeout client-fin 5s
+timeout server-fin 5s
+```
+
+- `timeout client/server` 控制完全没有数据流动的空闲连接。
+- `timeout client-fin/server-fin` 专门控制一端已经发送 FIN、另一端却没有完成关闭的半关闭连接。
+- 上游住宅代理或目标服务未及时返回 FIN 时，半关闭连接最多保留 5 秒，避免 `FIN_WAIT2` / `CLOSE_WAIT` 长期堆积。
+- 活跃传输不会被 5 秒 FIN 超时切断，因为连接尚未进入半关闭状态。
+
+可在启动面板前通过环境变量覆盖：
+
+```bash
+export HAPROXY_TIMEOUT_CLIENT=1m
+export HAPROXY_TIMEOUT_SERVER=1m
+export HAPROXY_TIMEOUT_CLIENT_FIN=5s
+export HAPROXY_TIMEOUT_SERVER_FIN=5s
+```
+
 ## 项目结构
 
 ```

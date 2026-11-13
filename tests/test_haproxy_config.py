@@ -56,8 +56,26 @@ class HAProxyConfigTests(unittest.TestCase):
         self.assertIn("frontend fe_10000", text)
         self.assertIn("backend be_10000", text)
         self.assertIn("server s10000 200.36.10.14:6011", text)
+        self.assertIn("timeout client 1m", text)
+        self.assertIn("timeout server 1m", text)
+        self.assertIn("timeout client-fin 5s", text)
+        self.assertIn("timeout server-fin 5s", text)
         self.assertEqual(ports, {"10000"})
         self.assertEqual(duplicates, {})
+
+    def test_generate_config_uses_timeout_overrides(self):
+        config = _Config(self.config_file)
+        config.haproxy_timeout_client = "2m"
+        config.haproxy_timeout_server = "2m"
+        config.haproxy_timeout_client_fin = "3s"
+        config.haproxy_timeout_server_fin = "3s"
+
+        text, _, _ = HAProxyCtl(config).generate_config(RULES)
+
+        self.assertIn("timeout client 2m", text)
+        self.assertIn("timeout server 2m", text)
+        self.assertIn("timeout client-fin 3s", text)
+        self.assertIn("timeout server-fin 3s", text)
 
     def test_reconcile_requests_reload_when_config_is_missing(self):
         plan = reconcile.plan(_Database(RULES), self.ctl)

@@ -66,6 +66,14 @@ class HAProxyCtl:
         self.sock = config.haproxy_sock
         self.pid_file = config.haproxy_pid
         self.config_file = config.haproxy_cfg
+        self.timeout_client = getattr(config, "haproxy_timeout_client", "1m")
+        self.timeout_server = getattr(config, "haproxy_timeout_server", "1m")
+        self.timeout_client_fin = getattr(
+            config, "haproxy_timeout_client_fin", "5s"
+        )
+        self.timeout_server_fin = getattr(
+            config, "haproxy_timeout_server_fin", "5s"
+        )
         self._last_stats = {}
         self._last_update = 0.0
         self._bufsize = 65536
@@ -533,8 +541,10 @@ class HAProxyCtl:
             "defaults",
             "    mode tcp",
             "    timeout connect 5000ms",
-            "    timeout client 1h",
-            "    timeout server 1h",
+            f"    timeout client {self.timeout_client}",
+            f"    timeout server {self.timeout_server}",
+            f"    timeout client-fin {self.timeout_client_fin}",
+            f"    timeout server-fin {self.timeout_server_fin}",
             "",
         ]
 

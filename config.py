@@ -32,3 +32,18 @@ class Config:
         self.check_timeout = 3                     # TCP check timeout in seconds
         self.check_max_workers = 30                # Concurrent check threads
         self.quota_check_interval = 60
+        # TCP idle and half-closed FIN timeouts written into HAProxy defaults.
+        # The short FIN timeout releases sockets promptly when an upstream does
+        # not complete the TCP close handshake.
+        self.haproxy_timeout_client = os.environ.get(
+            "HAPROXY_TIMEOUT_CLIENT", "1m"
+        )
+        self.haproxy_timeout_server = os.environ.get(
+            "HAPROXY_TIMEOUT_SERVER", "1m"
+        )
+        self.haproxy_timeout_client_fin = os.environ.get(
+            "HAPROXY_TIMEOUT_CLIENT_FIN", "5s"
+        )
+        self.haproxy_timeout_server_fin = os.environ.get(
+            "HAPROXY_TIMEOUT_SERVER_FIN", "5s"
+        )
