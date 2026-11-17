@@ -44,8 +44,6 @@ input:focus{border-color:#3b82f6}
     <label>本地端口</label><input name="local" value="{{ item.local }}" required>
     <label>目标 IP</label><input name="ip" value="{{ item.ip }}" required>
     <label>目标端口</label><input name="port" value="{{ item.port }}" required>
-    <label>过期时间</label><input type="datetime-local" name="expire" value="{{ expire }}" style="color-scheme:dark">
-    <label>流量配额 (GB)</label><input name="quota" value="{{ item.quota }}" step="0.5" min="0">
     <label>自定义分组</label><input name="group_name" value="{{ item.group_name }}" placeholder="留空自动识别">
     <label>备注</label><input name="note" value="{{ item.note }}" placeholder="备注信息">
     <div class="actions">

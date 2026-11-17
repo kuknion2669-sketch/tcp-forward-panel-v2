@@ -554,11 +554,6 @@ class HAProxyCtl:
         for item in data:
             if not item.get('enable', True):
                 continue
-            if self.is_expired(item.get('expire', '')):
-                continue
-            q = item.get('quota', 0)
-            if q > 0 and item.get('used', 0) >= q * 1024:
-                continue
             try:
                 loc, endpoint = _rule_endpoint(item)
             except ValueError as e:

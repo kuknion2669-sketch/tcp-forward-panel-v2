@@ -2,15 +2,14 @@
 # -*- coding: utf-8 -*-
 r"""面板"后台活"（2026-10-16 从 Web 进程里拆出来的那一份）。
 
-为什么拆：以前 Web 进程和后台活（流量统计 / 自动停用）绑在一个进程里，
+为什么拆：以前 Web 进程和后台活（流量统计）绑在一个进程里，
 所以只能开 1 个 gunicorn worker —— 多开就会**各跑一份统计**，流量被重复计数、
-可能误判"超配额"把节点关掉；而只有 1 个 worker 时，一个人点慢了别人全排队。
+而只有 1 个 worker 时，一个人点慢了别人全排队。
 
 现在：本程序由 systemd timer 每 15 秒拉起一次（也会被页面写入"戳"一下立刻跑），
-干三件事（顺序固定）：
+干两件事（顺序固定）：
   1. 流量统计（stats.update + stats.record，内部自带 60 秒节流）
-  2. 自动停用（超配额 / 已过期 → 关掉；走 HAProxy 运行时命令，不需 reload）
-  3. 对账（reconcile：把 HAProxy 拉回和数据库一致，有差异才 reload）
+  2. 对账（reconcile：把 HAProxy 拉回和数据库一致，有差异才 reload）
 
 同一时刻只允许一份在跑（文件锁 /run/tcp-panel-worker.lock）—— 这正是
 Web 侧可以安全开多个 worker 的前提。
@@ -88,17 +87,6 @@ def main():
                 rec["stats"] = f"error: {e}"[:300]
                 rec.setdefault("error", rec["stats"])
 
-        if args.dry_run:
-            rec["enforce"] = "skipped(dry-run)"
-        else:
-            try:
-                panel._enforce_auto_disable(panel.db.load())
-                rec["enforce"] = "ok"
-            except Exception as e:                            # noqa: BLE001
-                log.exception("自动停用失败")
-                rec["enforce"] = f"error: {e}"[:300]
-                rec.setdefault("error", rec["enforce"])
-
         if args.stats_only:
             rec["reconcile"] = "skipped(--stats-only)"
         else:
@@ -162,7 +150,7 @@ def main():
             pass
     log.info("worker 完成 %.3fs: %s", rec["duration_s"],
              json.dumps({k: v for k, v in rec.items()
-                         if k in ("stats", "enforce", "reconcile", "error")},
+                         if k in ("stats", "reconcile", "error")},
                         ensure_ascii=False)[:300])
     return 0 if "error" not in rec else 3
 

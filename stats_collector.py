@@ -88,27 +88,6 @@ class StatsCollector:
 
         self.record()
 
-        # Auto-disable quota-exhausted OR expired nodes
-        try:
-            import socket as _sq
-            _sq_s = _sq.socket(_sq.AF_UNIX, _sq.SOCK_STREAM)
-            _sq_s.settimeout(3)
-            _sq_s.connect(self.haproxy.sock)
-            for it in data:
-                lo = it.get('local', '')
-                if not lo or not str(lo).isdigit() or not it.get('enable', True):
-                    continue
-                q = it.get('quota', 0)
-                is_exhausted = q > 0 and it.get('used', 0) >= q * 1024
-                is_expired = self.haproxy.is_expired(it.get('expire', ''))
-                if is_exhausted or is_expired:
-                    _sq_s.sendall(f"disable server be_{lo}/s{lo}\n".encode())
-                    _sq_s.sendall(f"shutdown sessions server be_{lo}/s{lo}\n".encode())
-                    log.info(f"Auto-disable {lo}: {'quota exhausted' if is_exhausted else 'expired'}")
-            _sq_s.close()
-        except Exception as _e:
-            log.warning(f"Auto-disable failed: {_e}")
-
     def record(self):
         """Save current traffic snapshot to daily table"""
         if time.time() - self._last_record < 60:

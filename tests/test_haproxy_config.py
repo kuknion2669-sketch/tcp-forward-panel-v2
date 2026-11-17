@@ -77,6 +77,19 @@ class HAProxyConfigTests(unittest.TestCase):
         self.assertIn("timeout client-fin 3s", text)
         self.assertIn("timeout server-fin 3s", text)
 
+    def test_legacy_limits_do_not_exclude_enabled_nodes(self):
+        legacy = dict(
+            RULES[0],
+            quota=1,
+            used=999999,
+            expire="1",
+        )
+
+        text, ports, _ = self.ctl.generate_config([legacy])
+
+        self.assertIn("server s10000 200.36.10.14:6011", text)
+        self.assertEqual(ports, {"10000"})
+
     def test_reconcile_requests_reload_when_config_is_missing(self):
         plan = reconcile.plan(_Database(RULES), self.ctl)
 

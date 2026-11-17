@@ -1,5 +1,5 @@
 [Unit]
-Description=TCP Forward Panel v2 background worker (stats + auto-disable + reconcile)
+Description=TCP Forward Panel v2 background worker (stats + reconcile)
 Documentation=file:///root/tcp-panel-v2/panelworker.py
 After=network.target haproxy.service tcp-panel-v2.service
 

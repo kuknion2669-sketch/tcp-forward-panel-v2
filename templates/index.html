@@ -219,13 +219,6 @@ body{background:var(--bg);color:var(--text);font:14px/1.6 -apple-system,BlinkMac
 <!-- Stats -->
 <div class="stats-row">
   <div class="stat-card">
-    <div class="stat-icon blue">📦</div>
-    <div class="stat-body">
-      <div class="stat-val">{{ total_quota }}</div>
-      <div class="stat-lbl">总配额 (GB)</div>
-    </div>
-  </div>
-  <div class="stat-card">
     <div class="stat-icon green">📊</div>
     <div class="stat-body">
       <div class="stat-val">{{ total_used }}</div>
@@ -303,8 +296,6 @@ body{background:var(--bg);color:var(--text);font:14px/1.6 -apple-system,BlinkMac
     <option value="all"{% if sf=='all'%} selected{% endif %}>全部状态</option>
     <option value="online"{% if sf=='online'%} selected{% endif %}>在线</option>
     <option value="offline"{% if sf=='offline'%} selected{% endif %}>离线</option>
-    <option value="expired"{% if sf=='expired'%} selected{% endif %}>已过期</option>
-    <option value="quota"{% if sf=='quota'%} selected{% endif %}>已达配额</option>
   </select>
   <button class="btn btn-ghost btn-sm" onclick="checkAll()" id="checkAllBtn">一键检测</button>
 </div>
@@ -327,7 +318,6 @@ body{background:var(--bg);color:var(--text);font:14px/1.6 -apple-system,BlinkMac
         <span class="grid-badge">{{ g.count }} 条</span>
       </div>
       <div class="grid-body">
-        <div class="grid-bar"><div class="grid-fill" style="width:{{ g.bar_pct }}%"></div></div>
         <div class="grid-traf-row">
           <span class="lbl">▼ 入</span>
           <span class="val">{{ g.in_str }}</span>
@@ -344,8 +334,6 @@ body{background:var(--bg);color:var(--text);font:14px/1.6 -apple-system,BlinkMac
         <div class="grid-status">
           {% if g.online %}<span><span class="dot dot-on"></span> {{ g.online }} 在线</span>{% endif %}
           {% if g.offline %}<span><span class="dot dot-off"></span> {{ g.offline }} 离线</span>{% endif %}
-          {% if g.expired %}<span><span class="dot dot-exp"></span> {{ g.expired }} 过期</span>{% endif %}
-          {% if g.quotaExhausted %}<span style="color:#a78bfa">⚡ {{ g.quotaExhausted }} 达配额</span>{% endif %}
         </div>
       </div>
     </a>
@@ -365,16 +353,10 @@ body{background:var(--bg);color:var(--text);font:14px/1.6 -apple-system,BlinkMac
         <div class="node-route">{{ item.local }} → {{ item.ip }}:{{ item.port }}</div>
         <div class="node-meta">
           <span>▼入 {{ item.used_in_display }} / ▲出 {{ item.used_out_display }}</span>
-          <span>配额 {{ item.quota }} GB · 已用 <span class="pb"><span class="pf" style="width:{{ (item.used / (item.quota * 1024) * 100)|round(1) if item.quota > 0 else 0 }}%"></span></span></span>
-          {% if item.expire_time_display %}<span>到期 {{ item.expire_time_display }}</span>{% endif %}
         </div>
       </div>
       <div class="node-actions">
-        {% if item.expired %}
-          <span class="bdg bdg-exp">已过期</span>
-        {% elif item.quota > 0 and item.used >= item.quota * 1024 %}
-          <span class="bdg bdg-quota">已达配额</span>
-        {% elif not item.enable %}
+        {% if not item.enable %}
           <span class="bdg bdg-off" style="background:rgba(100,116,139,.1);color:#64748b;border-color:rgba(100,116,139,.2)">已停用</span>
         {% elif item.online %}
           <span class="bdg bdg-on"><span class="dot dot-on" style="width:5px;height:5px"></span> 在线</span>
@@ -408,8 +390,6 @@ body{background:var(--bg);color:var(--text);font:14px/1.6 -apple-system,BlinkMac
       <label>本地端口</label><input name="local" id="edit_local" required>
       <label>目标 IP</label><input name="ip" id="edit_ip" required>
       <label>目标端口</label><input name="port" id="edit_port" required>
-      <label>过期时间</label><input type="datetime-local" name="expire" id="edit_expire" style="color-scheme:dark">
-      <label>流量配额 (GB)</label><input name="quota" id="edit_quota" step="0.5" min="0">
       <label>自定义分组</label><input name="group_name" id="edit_group" placeholder="留空自动识别">
       <label>备注</label><input name="note" id="edit_note" placeholder="备注信息">
       <div style="display:flex;gap:10px;margin-top:20px">
@@ -423,7 +403,7 @@ body{background:var(--bg);color:var(--text);font:14px/1.6 -apple-system,BlinkMac
 <script>
 function disableAddBtn(f){var b=f.querySelector('[type=submit]');if(b.disabled)return false;b.disabled=true;b.textContent='添加中...';return true}
 </script>
-<div class="footer">V2 正式版 1.0 · 流量超额/到期自动断连</div>
+<div class="footer">V2 正式版 1.0 · 已关闭流量配额与到期限制</div>
 </div>
 
 <!-- Add Modal -->
@@ -435,8 +415,6 @@ function disableAddBtn(f){var b=f.querySelector('[type=submit]');if(b.disabled)r
       <label>本地端口（留空自动分配）</label><input name="local" placeholder="自动" style="width:120px">
       <label>目标 IP</label><input name="ip" placeholder="1.2.3.4" required>
       <label>目标端口</label><input name="port" placeholder="443" required>
-      <label>过期时间</label><input type="datetime-local" name="expire" style="color-scheme:dark;width:200px">
-      <label>流量配额 (GB，0=不限量)</label><input name="quota" value="0" step="0.5" min="0" style="width:100px">
       <label>自定义分组</label><input name="group_name" placeholder="留空自动识别">
       <label>备注</label><input name="note" placeholder="节点备注信息">
       <div style="display:flex;gap:10px;margin-top:20px">
@@ -475,14 +453,8 @@ function editNode(local){
   document.getElementById('edit_local').value=d.local||''
   document.getElementById('edit_ip').value=d.ip||''
   document.getElementById('edit_port').value=d.port||''
-  document.getElementById('edit_quota').value=d.quota||''
   document.getElementById('edit_note').value=d.note||''
   document.getElementById('edit_group').value=d.group_name||''
-  var exp='';if(d.expire){try{
-    var t=new Date(parseFloat(d.expire)*1000)
-    exp=t.getFullYear()+'-'+(t.getMonth()+1).toString().padStart(2,'0')+'-'+t.getDate().toString().padStart(2,'0')+'T'+t.getHours().toString().padStart(2,'0')+':'+t.getMinutes().toString().padStart(2,'0')
-  }catch(e){}}
-  document.getElementById('edit_expire').value=exp
   document.getElementById('editModal').classList.add('open')
 }
 
