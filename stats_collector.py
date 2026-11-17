@@ -1,162 +1,255 @@
-"""Traffic statistics - HAProxy stats polling, daily aggregation"""
-import time
+"""Traffic statistics v2.
+
+HAProxy cumulative byte counters are sampled and converted into deltas. The
+deltas are accumulated in ``node_daily`` so daily/node totals are independent
+of HAProxy reloads and never reconstructed by subtracting old total snapshots.
+"""
 import logging
-import json
-from datetime import datetime
+import os
+import time
+from datetime import date as _date
+from datetime import datetime, timedelta
 
 log = logging.getLogger('stats')
+
+
+def _display_mb(value):
+    value = float(value or 0)
+    if value >= 1024 * 1024:
+        return f"{value / 1024 / 1024:.2f} TB"
+    if value >= 1024:
+        return f"{value / 1024:.2f} GB"
+    return f"{value:.1f} MB"
+
 
 class StatsCollector:
     def __init__(self, database, haproxy_ctl):
         self.db = database
         self.haproxy = haproxy_ctl
-        self.last_update = [0.0]
-        self.last_traffic = {}
-        self._last_record = 0.0
+        self.last_update = 0.0
+        self.last_result = {}
+        try:
+            self.interval = max(
+                5, int(os.environ.get('TRAFFIC_SAMPLE_SECONDS', '15'))
+            )
+        except ValueError:
+            self.interval = 15
 
     def load_last_state(self):
-        try:
-            cfg = self.db.get_config()
-            if 'stats_last_traffic' in cfg:
-                loaded = json.loads(cfg['stats_last_traffic'])
-                self.last_traffic.update(loaded)
-                log.info(f"Loaded last_traffic with {len(loaded)} entries from DB")
-        except Exception as e:
-            log.warning(f"load_last_state: {e}")
+        """Compatibility hook; v2 keeps counters in SQLite, not JSON config."""
+        return None
 
     def save_last_state(self):
-        try:
-            encoded = json.dumps(self.last_traffic)
-            self.db.set_config('stats_last_traffic', encoded)
-        except Exception as e:
-            log.warning(f"save_last_state: {e}")
+        """Compatibility hook; v2 keeps counters in SQLite, not JSON config."""
+        return None
 
     def clear_last(self, port):
-        """Clear tracking for a single port (used after quota reset)"""
-        if port in self.last_traffic:
-            del self.last_traffic[port]
+        return self.db.clear_traffic_cursor(port)
 
-    def update(self):
-        """Poll HAProxy stats, compute traffic deltas, save to DB"""
+    def update(self, force=False):
         now = time.time()
-        if now - self.last_update[0] < 60:
-            return
-        self.last_update[0] = now
-
-        cur = self.haproxy.get_backend_stats()
-        if not cur:
-            return
-
+        if not force and now - self.last_update < self.interval:
+            return self.last_result
+        samples = self.haproxy.get_backend_stats()
+        if not samples:
+            return self.last_result
+        observed_at = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')
         with self.db.locked():
-            data = self.db.load()
-            changed = False
-            new_last = dict(self.last_traffic)
-
-            for item in data:
-                p = item.get('local')
-                if not p or p not in cur:
-                    continue
-                prev = self.last_traffic.get(p)
-                c = cur[p]
-
-                if prev:
-                    d_in = c['bin'] - prev['bin']
-                    d_out = c['bout'] - prev['bout']
-                    if d_in >= 0 and d_out >= 0:
-                        if (d_in > 10*1024*1024*1024
-                                or d_out > 10*1024*1024*1024):
-                            log.warning(
-                                f"Large delta {p}: +{d_in/1024/1024:.1f}MB in, "
-                                f"+{d_out/1024/1024:.1f}MB out (sanity check)"
-                            )
-                        item['used_in'] = round(
-                            item.get('used_in', 0) + d_in / (1024*1024), 1
-                        )
-                        item['used_out'] = round(
-                            item.get('used_out', 0) + d_out / (1024*1024), 1
-                        )
-                        item['used'] = round(
-                            item.get('used_in', 0) + item.get('used_out', 0), 1
-                        )
-                        changed = True
-                new_last[p] = c
-
-            if changed and not self.db.save_usage(data):
-                return
-            self.last_traffic = new_last
-            self.save_last_state()
-
-        self.record()
+            result = self.db.apply_traffic_snapshot(
+                samples, observed_at=observed_at
+            )
+        if result is not None:
+            self.last_result = result
+            self.last_update = now
+            if result.get('resets'):
+                log.warning(
+                    "HAProxy traffic counter reset detected on %s port(s)",
+                    result['resets'],
+                )
+        return self.last_result
 
     def record(self):
-        """Save current traffic snapshot to daily table"""
-        if time.time() - self._last_record < 60:
-            return
-        self._last_record = time.time()
-        today = datetime.now().strftime('%Y-%m-%d')
-        data = self.db.load()
-        status_map = self.haproxy.server_status_map()
-        total = total_in = total_out = online = 0
+        """Kept for worker compatibility; update already persists atomically."""
+        return self.last_result
 
-        for item in data:
-            p = item.get('local', '')
-            if not p:
-                continue
-            try:
-                total += float(item.get('used', 0))
-                total_in += float(item.get('used_in', 0))
-                total_out += float(item.get('used_out', 0))
-            except Exception:
-                pass  # non-critical, skip
-            # 2026-10-16: 同 panel.enrich_item —— 别用 dict.get(key, 慢函数())：
-            # 默认值会被无条件求值（198 条规则 × 一次 netstat 子进程）。
-            if (status_map[p] if p in status_map else self.haproxy.is_listening(p)):
-                online += 1
-
-        self.db.save_daily(today, round(total, 1), round(total_in, 1),
-                          round(total_out, 1), online, len(data))
+    def reset_epoch(self):
+        samples = self.haproxy.get_backend_stats()
+        if not samples:
+            return None
+        observed_at = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')
+        with self.db.locked():
+            epoch = self.db.reset_traffic_stats(
+                samples, observed_at=observed_at
+            )
+        if epoch:
+            self.last_update = time.time()
+            self.last_result = {}
+        return epoch
 
     def get_history(self, days=30):
-        """Get daily traffic history for chart display"""
-        rows = self.db.get_daily(days)
-        if not rows:
-            return []
-
-        prev_total = None
-        prev_in = None
-        prev_out = None
-        max_daily = 1
-        daily_data = []
-
-        for row in rows:
-            d, total, total_in, total_out = row[0], row[1], row[2], row[3]
-            if prev_total is not None:
-                daily = max(0, total - prev_total)
-                daily_in = max(0, total_in - prev_in) if prev_in is not None else total_in
-                daily_out = max(0, total_out - prev_out) if prev_out is not None else total_out
-            else:
-                daily = total
-                daily_in = total_in
-                daily_out = total_out
-            prev_total, prev_in, prev_out = total, total_in, total_out
-            daily_data.append({'date': d, 'daily': daily, 'daily_in': daily_in, 'daily_out': daily_out})
-            if daily > max_daily:
-                max_daily = daily
-
+        rows = self.db.get_traffic_daily_totals(days)
+        by_date = {
+            row[0]: {'in_mb': float(row[1] or 0), 'out_mb': float(row[2] or 0)}
+            for row in rows
+        }
+        end = _date.today()
+        start = end - timedelta(days=max(0, days - 1))
         history = []
-        for entry in daily_data:
-            d = entry['date']
-            daily = entry['daily']
-            daily_in = entry['daily_in']
-            daily_out = entry['daily_out']
-            bar_pct = int(daily / max_daily * 100) if max_daily > 0 else 0
-            td = f"{round(daily/1024,1)} GB" if daily >= 1024 else f"{round(daily,1)} MB"
-            tid = f"{round(daily_in/1024,1)} GB" if daily_in >= 1024 else f"{round(daily_in,1)} MB"
-            tod = f"{round(daily_out/1024,1)} GB" if daily_out >= 1024 else f"{round(daily_out,1)} MB"
+        cursor = start
+        while cursor <= end:
+            day = cursor.isoformat()
+            values = by_date.get(day, {'in_mb': 0.0, 'out_mb': 0.0})
+            total = values['in_mb'] + values['out_mb']
             history.append({
-                'date': d, 'short_date': d[5:],
-                'total_display': td, 'bar_pct': bar_pct,
-                'total_in': round(daily_in, 1), 'total_out': round(daily_out, 1),
-                'total_in_display': tid, 'total_out_display': tod
+                'date': day,
+                'short_date': day[5:],
+                'total': round(total, 3),
+                'total_in': round(values['in_mb'], 3),
+                'total_out': round(values['out_mb'], 3),
+                'total_display': _display_mb(total),
+                'total_in_display': _display_mb(values['in_mb']),
+                'total_out_display': _display_mb(values['out_mb']),
             })
+            cursor += timedelta(days=1)
         return history
+
+    def get_dashboard(self, selected_date=None, days=30, query=''):
+        try:
+            selected = datetime.strptime(selected_date, '%Y-%m-%d').date()
+        except (TypeError, ValueError):
+            selected = _date.today()
+        today = _date.today()
+        if selected > today:
+            selected = today
+
+        selected_s = selected.isoformat()
+        yesterday_s = (selected - timedelta(days=1)).isoformat()
+        start7 = (selected - timedelta(days=6)).isoformat()
+        start30 = (selected - timedelta(days=29)).isoformat()
+
+        day_rows = {
+            str(row['port']): row
+            for row in self.db.get_traffic_nodes_for_date(selected_s)
+        }
+        yesterday_rows = {
+            str(row['port']): row
+            for row in self.db.get_traffic_nodes_for_date(yesterday_s)
+        }
+        period7 = {
+            str(row[0]): row
+            for row in self.db.get_traffic_totals_by_node(start7, selected_s)
+        }
+        period30 = {
+            str(row[0]): row
+            for row in self.db.get_traffic_totals_by_node(start30, selected_s)
+        }
+
+        rules = self.db.load()
+        rows = []
+        current_ports = set()
+        for rule in rules:
+            port = str(rule.get('local', ''))
+            if not port:
+                continue
+            current_ports.add(port)
+            day = day_rows.get(port, {})
+            yesterday = yesterday_rows.get(port, {})
+            week = period7.get(port, (port, rule.get('name', ''), 0, 0))
+            month = period30.get(port, (port, rule.get('name', ''), 0, 0))
+            rows.append({
+                'port': port,
+                'name': rule.get('name', '') or day.get('name', ''),
+                'ip': rule.get('ip', ''),
+                'upstream_port': rule.get('port', ''),
+                'group': rule.get('group_name', ''),
+                'day_in_mb': round(float(day.get('in_mb', 0) or 0), 3),
+                'day_out_mb': round(float(day.get('out_mb', 0) or 0), 3),
+                'day_total_mb': round(
+                    float(day.get('in_mb', 0) or 0)
+                    + float(day.get('out_mb', 0) or 0), 3
+                ),
+                'yesterday_total_mb': round(
+                    float(yesterday.get('in_mb', 0) or 0)
+                    + float(yesterday.get('out_mb', 0) or 0), 3
+                ),
+                'week_total_mb': round(float(week[2] or 0) + float(week[3] or 0), 3),
+                'month_total_mb': round(float(month[2] or 0) + float(month[3] or 0), 3),
+                'last_seen': day.get('last_seen', ''),
+            })
+
+        for port, day in day_rows.items():
+            if port in current_ports:
+                continue
+            rows.append({
+                'port': port,
+                'name': day.get('name', '') or '(已删除节点)',
+                'ip': '',
+                'upstream_port': '',
+                'group': '',
+                'day_in_mb': round(float(day.get('in_mb', 0) or 0), 3),
+                'day_out_mb': round(float(day.get('out_mb', 0) or 0), 3),
+                'day_total_mb': round(
+                    float(day.get('in_mb', 0) or 0)
+                    + float(day.get('out_mb', 0) or 0), 3
+                ),
+                'yesterday_total_mb': 0.0,
+                'week_total_mb': 0.0,
+                'month_total_mb': 0.0,
+                'last_seen': day.get('last_seen', ''),
+            })
+
+        day_in = sum(float(row.get('in_mb', 0) or 0)
+                     for row in day_rows.values())
+        day_out = sum(float(row.get('out_mb', 0) or 0)
+                      for row in day_rows.values())
+        yesterday_total = sum(
+            float(row.get('in_mb', 0) or 0)
+            + float(row.get('out_mb', 0) or 0)
+            for row in yesterday_rows.values()
+        )
+        week_total = sum(
+            float(row[2] or 0) + float(row[3] or 0)
+            for row in period7.values()
+        )
+        month_total = sum(
+            float(row[2] or 0) + float(row[3] or 0)
+            for row in period30.values()
+        )
+
+        needle = (query or '').strip().lower()
+        if needle:
+            rows = [
+                row for row in rows
+                if needle in row['name'].lower()
+                or needle in row['port'].lower()
+                or needle in row['ip'].lower()
+            ]
+        rows.sort(key=lambda row: (row['day_total_mb'], row['month_total_mb']),
+                  reverse=True)
+        for row in rows:
+            row.update({
+                'day_in_display': _display_mb(row['day_in_mb']),
+                'day_out_display': _display_mb(row['day_out_mb']),
+                'day_total_display': _display_mb(row['day_total_mb']),
+                'yesterday_total_display': _display_mb(
+                    row['yesterday_total_mb']
+                ),
+                'week_total_display': _display_mb(row['week_total_mb']),
+                'month_total_display': _display_mb(row['month_total_mb']),
+            })
+
+        config = self.db.get_config()
+        return {
+            'rows': rows,
+            'selected_date': selected_s,
+            'yesterday_date': yesterday_s,
+            'today': today.isoformat(),
+            'epoch': config.get('traffic_stats_epoch', ''),
+            'day_in': _display_mb(day_in),
+            'day_out': _display_mb(day_out),
+            'day_total': _display_mb(day_in + day_out),
+            'yesterday_total': _display_mb(yesterday_total),
+            'week_total': _display_mb(week_total),
+            'month_total': _display_mb(month_total),
+            'history': self.get_history(days=max(7, min(90, int(days)))),
+        }

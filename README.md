@@ -29,7 +29,7 @@ TCP 端口转发管理面板 — 基于 HAProxy 的一站式转发节点管理�
 
 - **规则管理**：增/删/改/批量导入转发规则
 - **分组视图**：按区域/用途自动分组
-- **流量统计**：HAProxy stats 实时轮询，每日/30天趋势图
+- **流量统计**：按节点逐日记录入站/出站增量，支持日期查询、趋势图和 CSV 导出
 - **不限流量/时间**：已关闭流量配额和到期限制，旧字段仅保留数据库兼容
 - **一键检测**：并发 30 线程检测所有节点连通性
 - **实时开关**：滑动开关即时启用/停用节点，不触发全量 reload
@@ -132,7 +132,7 @@ export HAPROXY_TIMEOUT_SERVER_FIN=5s
 ├── config.py          配置常量
 ├── database.py        SQLite 数据层
 ├── haproxy_ctl.py     HAProxy 管理（socket、配置生成、热加载）
-├── stats_collector.py 流量统计（delta 计算、每日汇总、持久化）
+├── stats_collector.py 流量统计（15 秒采样、节点日增量、趋势与导出）
 ├── check_mgr.py       节点连通性检测（ThreadPoolExecutor 并发）
 ├── templates/
 │   ├── index.html     主面板（分组/全部视图）

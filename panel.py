@@ -9,7 +9,7 @@
 # 6. Same DB schema → coexists with v13, no node disruption
 
 from flask import Flask, render_template, request, redirect, Response, session, jsonify
-import os, json, time, logging, secrets, socket, threading, subprocess
+import csv, io, os, json, time, logging, secrets, socket, threading, subprocess
 from datetime import datetime, timedelta
 from functools import wraps
 from logging.handlers import RotatingFileHandler
@@ -55,7 +55,7 @@ def apply_desired(d, why=""):
 
     老做法是"你这次请求自己生成配置 + 校验 + 重载 HAProxy"，页面因此要等 2-3 秒。
     新做法默认**异步**：只戳一下后台 worker（tcp-panel-worker.service），由它带锁地
-    做 统计 / 自动停用 / 对账，页面立刻返回。
+    做 流量采样 / 对账，页面立刻返回。
 
     应急回退：设环境变量 `PANEL_SYNC_APPLY=1` 就退回老的同步 reload 行为。
     """
@@ -644,75 +644,80 @@ def _v3_auth_guard():
                 return jsonify({'error': 'unauthorized'}), 403
     return None
 
+@app.route('/traffic')
 @app.route('/audit')
 @login_required
-def audit():
-    import subprocess
-    hap_bytes = 0
-    try:
-        stats_raw = haproxy.get_api_stats()
-        if stats_raw.get('ok'):
-            for r in stats_raw.get('backends', []):
-                try:
-                    hap_bytes += int(r.get('bin', 0) or 0) + int(r.get('bout', 0) or 0)
-                except Exception:
-                    pass
-    except Exception:
-        pass
-    haproxy_gb = round(hap_bytes / 1024 ** 3, 2)
-    data = db.load()
-    panel_gb = round(sum(float(d.get('used', 0) or 0) for d in data) / 1024.0, 2)
-    iptables_gb = 0.0
-    try:
-        out = subprocess.getoutput('iptables -L -n -v -x 2>/dev/null')
-        total = 0
-        for line in out.splitlines():
-            parts = line.split()
-            if len(parts) >= 7:
-                try:
-                    total += int(parts[1])
-                except Exception:
-                    pass
-        iptables_gb = round(total / 1024 ** 3, 2)
-    except Exception:
-        pass
-    eth0_rx = eth0_tx = 0
-    try:
-        with open('/proc/net/dev') as f:
-            for line in f:
-                if line.strip().startswith('eth0:'):
-                    cols = line.split(':')[1].split()
-                    eth0_rx = int(cols[0])
-                    eth0_tx = int(cols[8])
-                    break
-    except Exception:
-        pass
-    eth0_total_gb = round((eth0_rx + eth0_tx) / 1024 ** 3, 2)
-    eth0_rx_gb = round(eth0_rx / 1024 ** 3, 2)
-    eth0_tx_gb = round(eth0_tx / 1024 ** 3, 2)
-    return render_template('audit.html',
-        haproxy_gb=haproxy_gb, iptables_gb=iptables_gb,
-        panel_data=[{'gb': panel_gb}],
-        eth0_total_gb=eth0_total_gb, eth0_rx_gb=eth0_rx_gb, eth0_tx_gb=eth0_tx_gb,
-        daily_deltas=[], reset_time='')
+def traffic_page():
+    days = request.args.get('days', 30, type=int)
+    days = max(7, min(90, days))
+    selected = request.args.get('date', '')
+    query = request.args.get('q', '')
+    dashboard = stats.get_dashboard(
+        selected_date=selected, days=days, query=query
+    )
+    return render_template(
+        'traffic.html',
+        days=days,
+        query=query,
+        **dashboard,
+    )
+
+
+@app.route('/api/traffic/summary')
+@login_required
+def api_traffic_summary():
+    days = request.args.get('days', 30, type=int)
+    days = max(7, min(90, days))
+    selected = request.args.get('date', '')
+    query = request.args.get('q', '')
+    return jsonify(stats.get_dashboard(selected_date=selected, days=days,
+                                       query=query))
+
+
+@app.route('/traffic/export.csv')
+@login_required
+def export_traffic_csv():
+    start = request.args.get('start', '').strip()
+    end = request.args.get('end', '').strip()
+    for value in (start, end):
+        if value:
+            try:
+                datetime.strptime(value, '%Y-%m-%d')
+            except ValueError:
+                return 'invalid date', 400
+    rows = db.export_traffic_daily(start or None, end or None)
+    output = io.StringIO()
+    output.write('\ufeff')
+    writer = csv.writer(output)
+    writer.writerow([
+        '日期', '本地端口', '节点名称', '入站MB', '出站MB',
+        '合计MB', '首次采样', '最后采样',
+    ])
+    for row in rows:
+        writer.writerow([
+            row.get('date', ''), row.get('port', ''), row.get('name', ''),
+            row.get('in_mb', 0), row.get('out_mb', 0),
+            row.get('total_mb', 0), row.get('first_seen', ''),
+            row.get('last_seen', ''),
+        ])
+    suffix = f"_{start}_{end}" if start or end else ''
+    return Response(
+        output.getvalue(),
+        mimetype='text/csv; charset=utf-8',
+        headers={
+            'Content-Disposition':
+                f'attachment; filename=node_traffic{suffix}.csv'
+        },
+    )
 
 @app.route('/api/reset_traffic', methods=['POST'])
 @login_required
 def reset_traffic():
-    with db.locked():
-        if not db.reset_usage():
-            return jsonify({'ok': False, 'error': 'reset failed'}), 500
-        data = db.load()
-        stats.last_traffic.clear()
-        stats.save_last_state()
-    try:
-        import subprocess as _sp
-        _sp.run('iptables -Z', shell=True, timeout=10)
-    except Exception:
-        pass
-    apply_desired(data)
-    db.log_event('', '', 'reset_traffic', 'reset all traffic counters')
-    return jsonify({'ok': True})
+    epoch = stats.reset_epoch()
+    if not epoch:
+        return jsonify({'ok': False, 'error': 'reset failed'}), 500
+    db.log_event('', '', 'reset_traffic', f'traffic v2 epoch: {epoch}')
+    return jsonify({'ok': True, 'epoch': epoch})
 
 # === v3 API routes (no auth, for internal v3 panel on Reldens) ===
 @app.route("/api/v3/rules", methods=["GET"])

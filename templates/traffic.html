@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>节点流量统计</title>
+  <style>
+    :root{--bg:#0b1220;--card:#111b2e;--card2:#16233b;--line:#253553;--text:#e5eefc;--muted:#8192ad;--blue:#3b82f6;--green:#22c55e;--violet:#a78bfa;--amber:#f59e0b}
+    *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+    a{color:inherit;text-decoration:none}.top{padding:18px 28px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:16px;flex-wrap:wrap;background:#0e1728cc;position:sticky;top:0;z-index:5;backdrop-filter:blur(12px)}
+    h1{font-size:20px;margin:0}.sub{color:var(--muted);font-size:12px}.spacer{flex:1}.btn{border:1px solid var(--line);background:var(--card);color:var(--text);border-radius:8px;padding:8px 12px;cursor:pointer;font:inherit}.btn:hover{border-color:#3b82f6}.btn.primary{background:#2563eb;border-color:#2563eb}.btn.danger{color:#fca5a5;border-color:#7f1d1d}
+    .wrap{padding:22px 28px 40px;max-width:1680px;margin:auto}.filters{display:flex;gap:10px;align-items:end;flex-wrap:wrap;margin-bottom:18px}.field{display:flex;flex-direction:column;gap:5px;color:var(--muted);font-size:12px}input,select{background:var(--card);border:1px solid var(--line);border-radius:8px;color:var(--text);padding:8px 10px;font:inherit;min-height:38px}input:focus,select:focus{outline:none;border-color:var(--blue)}
+    .cards{display:grid;grid-template-columns:repeat(6,minmax(140px,1fr));gap:12px;margin-bottom:18px}.card{background:linear-gradient(145deg,var(--card2),var(--card));border:1px solid var(--line);border-radius:12px;padding:15px}.label{font-size:12px;color:var(--muted)}.value{font-size:22px;font-weight:700;margin-top:5px;white-space:nowrap}
+    .panel{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-top:14px}.panel h2{font-size:15px;margin:0 0 12px}.note{color:var(--muted);font-size:12px}.table-wrap{overflow:auto;max-height:70vh;border-radius:8px;border:1px solid var(--line)}table{border-collapse:separate;border-spacing:0;width:100%;font-size:12px;min-width:1050px}th,td{padding:9px 10px;border-bottom:1px solid rgba(255,255,255,.055);white-space:nowrap}th{position:sticky;top:0;background:#15223a;color:#9fb0c9;text-align:right;z-index:1}th:first-child,th:nth-child(2),td:first-child,td:nth-child(2){text-align:left}tbody tr:hover{background:rgba(59,130,246,.06)}.num{font-variant-numeric:tabular-nums;text-align:right}.muted{color:var(--muted)}.tag{display:inline-block;padding:2px 7px;border-radius:99px;background:#1c2e4d;color:#9cc1ff;font-size:11px}
+    .empty{text-align:center;padding:45px;color:var(--muted)}#chart{height:300px}@media(max-width:1200px){.cards{grid-template-columns:repeat(3,1fr)}}@media(max-width:720px){.top,.wrap{padding-left:14px;padding-right:14px}.cards{grid-template-columns:repeat(2,1fr)}.value{font-size:18px}}
+  </style>
+</head>
+<body>
+<div class="top">
+  <div><h1>节点流量统计</h1><div class="sub">HAProxy 累计计数器增量 · 按节点逐日入库</div></div>
+  <div class="spacer"></div>
+  <a class="btn" href="/">返回面板</a>
+  <a class="btn" href="/traffic/export.csv{% if selected_date %}?start={{ selected_date }}&end={{ selected_date }}{% endif %}">导出当前日 CSV</a>
+  <button class="btn danger" onclick="resetStats()">清零并重新开始</button>
+</div>
+<div class="wrap">
+  <form class="filters" method="get" action="/traffic">
+    <label class="field">统计日期<input type="date" name="date" value="{{ selected_date }}" max="{{ today }}"></label>
+    <label class="field">趋势天数<select name="days">{% for n in [7,14,30,60,90] %}<option value="{{ n }}"{% if days==n %} selected{% endif %}>{{ n }} 天</option>{% endfor %}</select></label>
+    <label class="field">搜索节点<input name="q" value="{{ query }}" placeholder="名称 / 本地端口 / IP"></label>
+    <button class="btn primary" type="submit">查询</button>
+  </form>
+
+  <div class="cards">
+    <div class="card"><div class="label">{{ selected_date }} 合计</div><div class="value">{{ day_total }}</div></div>
+    <div class="card"><div class="label">入站</div><div class="value" style="color:#60a5fa">{{ day_in }}</div></div>
+    <div class="card"><div class="label">出站</div><div class="value" style="color:#4ade80">{{ day_out }}</div></div>
+    <div class="card"><div class="label">前一日</div><div class="value">{{ yesterday_total }}</div></div>
+    <div class="card"><div class="label">近 7 天</div><div class="value">{{ week_total }}</div></div>
+    <div class="card"><div class="label">近 30 天</div><div class="value">{{ month_total }}</div></div>
+  </div>
+
+  <div class="note">
+    新统计口径从 {% if epoch %}{{ epoch }}{% else %}首次采集{% endif %} 开始；统计周期每 15 秒采样一次。
+    HAProxy 重载导致累计计数器归零时，新计数周期的已累计值会保留，不会把当天记录冲成负数。
+  </div>
+
+  <div class="panel">
+    <h2>每日总流量趋势</h2>
+    <div id="chart"></div>
+  </div>
+
+  <div class="panel">
+    <h2>{{ selected_date }} 各节点流量</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>节点</th><th>本地端口</th><th>目标地址</th><th>分组</th>
+          <th>当日入站</th><th>当日出站</th><th>当日合计</th>
+          <th>前一日</th><th>近 7 天</th><th>近 30 天</th><th>最后采样</th>
+        </tr></thead>
+        <tbody>
+        {% for r in rows %}
+          <tr>
+            <td>{{ r.name }}</td>
+            <td><span class="tag">{{ r.port }}</span></td>
+            <td class="muted">{% if r.ip %}{{ r.ip }}:{{ r.upstream_port }}{% else %}—{% endif %}</td>
+            <td class="muted">{{ r.group or '—' }}</td>
+            <td class="num" style="color:#60a5fa">{{ r.day_in_display }}</td>
+            <td class="num" style="color:#4ade80">{{ r.day_out_display }}</td>
+            <td class="num"><strong>{{ r.day_total_display }}</strong></td>
+            <td class="num">{{ r.yesterday_total_display }}</td>
+            <td class="num">{{ r.week_total_display }}</td>
+            <td class="num">{{ r.month_total_display }}</td>
+            <td class="num muted">{{ r.last_seen or '无流量' }}</td>
+          </tr>
+        {% else %}
+          <tr><td colspan="11" class="empty">当前日期暂无流量数据</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script src="/static/echarts.min.js"></script>
+<script>
+const history = {{ history|tojson }};
+(function(){
+  if(!window.echarts){return}
+  const chart=echarts.init(document.getElementById('chart'));
+  chart.setOption({
+    tooltip:{trigger:'axis',formatter:function(ps){
+      const i=ps[0].dataIndex, r=history[i];
+      return r.date+'<br/>入站 '+r.total_in_display+'<br/>出站 '+r.total_out_display+'<br/>合计 '+r.total_display;
+    }},
+    legend:{data:['入站','出站'],textStyle:{color:'#8192ad'},right:8,top:2},
+    grid:{left:38,right:18,top:38,bottom:35},
+    xAxis:{type:'category',data:history.map(x=>x.short_date),axisLabel:{color:'#8192ad'},axisLine:{lineStyle:{color:'#253553'}}},
+    yAxis:{type:'value',name:'MB',nameTextStyle:{color:'#8192ad'},axisLabel:{color:'#8192ad'},splitLine:{lineStyle:{color:'rgba(255,255,255,.05)'}}},
+    dataZoom:[{type:'inside'},{type:'slider',height:16,bottom:4,borderColor:'#253553',fillerColor:'rgba(59,130,246,.15)'}],
+    series:[
+      {name:'入站',type:'bar',stack:'traffic',data:history.map(x=>x.total_in),itemStyle:{color:'#3b82f6'}},
+      {name:'出站',type:'bar',stack:'traffic',data:history.map(x=>x.total_out),itemStyle:{color:'#22c55e'}}
+    ]
+  });
+  addEventListener('resize',()=>chart.resize());
+})();
+function resetStats(){
+  if(!confirm('确定清空新版流量统计并重新建立基线？\n\n这会清空节点累计值、逐日流量和趋势图，然后从当前时刻重新统计。旧数据库已有备份。')) return;
+  fetch('/api/reset_traffic',{method:'POST'}).then(r=>r.json()).then(d=>{
+    if(!d.ok){alert('重置失败：'+(d.error||'未知错误'));return}
+    alert('已重新建立流量统计基线');location.reload();
+  }).catch(()=>alert('重置请求失败'));
+}
+</script>
+</body>
+</html>

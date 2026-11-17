@@ -8,7 +8,7 @@ r"""面板"后台活"（2026-10-16 从 Web 进程里拆出来的那一份）。
 
 现在：本程序由 systemd timer 每 15 秒拉起一次（也会被页面写入"戳"一下立刻跑），
 干两件事（顺序固定）：
-  1. 流量统计（stats.update + stats.record，内部自带 60 秒节流）
+  1. 流量统计（15 秒采样、按节点逐日落库）
   2. 对账（reconcile：把 HAProxy 拉回和数据库一致，有差异才 reload）
 
 同一时刻只允许一份在跑（文件锁 /run/tcp-panel-worker.lock）—— 这正是
