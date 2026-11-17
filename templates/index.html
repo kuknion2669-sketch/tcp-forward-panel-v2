@@ -436,7 +436,7 @@ function disableAddBtn(f){var b=f.querySelector('[type=submit]');if(b.disabled)r
       <label>目标 IP</label><input name="ip" placeholder="1.2.3.4" required>
       <label>目标端口</label><input name="port" placeholder="443" required>
       <label>过期时间</label><input type="datetime-local" name="expire" style="color-scheme:dark;width:200px">
-      <label>流量配额 (GB，0=不限量)</label><input name="quota" value="10" step="0.5" min="0" style="width:100px">
+      <label>流量配额 (GB，0=不限量)</label><input name="quota" value="0" step="0.5" min="0" style="width:100px">
       <label>自定义分组</label><input name="group_name" placeholder="留空自动识别">
       <label>备注</label><input name="note" placeholder="节点备注信息">
       <div style="display:flex;gap:10px;margin-top:20px">
