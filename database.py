@@ -54,7 +54,7 @@ class Database:
             quota REAL DEFAULT 0, used REAL DEFAULT 0,
             used_in REAL DEFAULT 0, used_out REAL DEFAULT 0,
             enable INTEGER DEFAULT 1, note TEXT DEFAULT "",
-            group_name TEXT DEFAULT ""
+            group_name TEXT DEFAULT "", offline_since TEXT DEFAULT ""
         )''')
         c.execute('''CREATE TABLE IF NOT EXISTS traffic (
             date TEXT, port TEXT, name TEXT, used REAL,
@@ -119,6 +119,11 @@ class Database:
             if "group_name" not in cols:
                 c.execute("ALTER TABLE rules ADD COLUMN group_name TEXT DEFAULT ''")
                 log.info("Migration: added group_name column")
+            if "offline_since" not in cols:
+                c.execute(
+                    "ALTER TABLE rules ADD COLUMN offline_since TEXT DEFAULT ''"
+                )
+                log.info("Migration: added offline_since column")
         except Exception as e:
             log.warning(f"Migration: could not add group_name - {e}")
         try:
@@ -147,12 +152,13 @@ class Database:
             c = conn.cursor()
             c.execute("DELETE FROM rules")
             for item in data:
-                c.execute('''INSERT INTO rules (name, local, ip, port, expire, quota, used, used_in, used_out, enable, note, group_name)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)''',
+                c.execute('''INSERT INTO rules (name, local, ip, port, expire, quota, used, used_in, used_out, enable, note, group_name, offline_since)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)''',
                     (item.get('name', ''), item.get('local', ''), item.get('ip', ''),
                      item.get('port', ''), item.get('expire', ''), item.get('quota', 0),
                      item.get('used', 0), item.get('used_in', 0), item.get('used_out', 0),
-                     1 if item.get('enable', True) else 0, item.get('note', ''), item.get('group_name', '')))
+                     1 if item.get('enable', True) else 0, item.get('note', ''),
+                     item.get('group_name', ''), item.get('offline_since', '') or ''))
             conn.commit()
             return True
         except Exception as e:

@@ -7,9 +7,10 @@ r"""面板"后台活"（2026-10-16 从 Web 进程里拆出来的那一份）。
 而只有 1 个 worker 时，一个人点慢了别人全排队。
 
 现在：本程序由 systemd timer 每 15 秒拉起一次（也会被页面写入"戳"一下立刻跑），
-干两件事（顺序固定）：
+干三件事（顺序固定）：
   1. 流量统计（15 秒采样、按节点逐日落库）
-  2. 对账（reconcile：把 HAProxy 拉回和数据库一致，有差异才 reload）
+  2. 离线清理（已启用且连续离线满 60 天自动删除，手工停用不处理）
+  3. 对账（reconcile：把 HAProxy 拉回和数据库一致，有差异才 reload）
 
 同一时刻只允许一份在跑（文件锁 /run/tcp-panel-worker.lock）—— 这正是
 Web 侧可以安全开多个 worker 的前提。
@@ -69,6 +70,7 @@ def main():
     try:
         import panel            # 复用面板自己的 db/haproxy/stats 与内部逻辑
         import reconcile
+        import node_hygiene
     except Exception as e:                                    # noqa: BLE001
         log.exception("worker 初始化失败")
         rec["error"] = str(e)[:300]
@@ -88,8 +90,20 @@ def main():
                 rec.setdefault("error", rec["stats"])
 
         if args.stats_only:
+            rec["offline_cleanup"] = "skipped(--stats-only)"
             rec["reconcile"] = "skipped(--stats-only)"
         else:
+            try:
+                rec["offline_cleanup"] = node_hygiene.cleanup_offline_nodes(
+                    panel.db,
+                    panel.haproxy,
+                    dry_run=args.dry_run,
+                )
+            except Exception as e:                            # noqa: BLE001
+                log.exception("离线节点清理失败")
+                rec["offline_cleanup"] = f"error: {e}"[:300]
+                rec.setdefault("error", rec["offline_cleanup"])
+
             acts = []
             try:
                 # 最多连做几次，吸收页面写入与对账并发造成的短暂差异。
@@ -150,7 +164,8 @@ def main():
             pass
     log.info("worker 完成 %.3fs: %s", rec["duration_s"],
              json.dumps({k: v for k, v in rec.items()
-                         if k in ("stats", "reconcile", "error")},
+                        if k in ("stats", "offline_cleanup", "reconcile",
+                                 "error")},
                         ensure_ascii=False)[:300])
     return 0 if "error" not in rec else 3
 
