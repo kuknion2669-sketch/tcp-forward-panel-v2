@@ -92,6 +92,21 @@ class Database:
             'CREATE INDEX IF NOT EXISTS idx_node_daily_port_date '
             'ON node_daily(port, date)'
         )
+        c.execute('''CREATE TABLE IF NOT EXISTS node_hourly (
+            date TEXT NOT NULL,
+            hour INTEGER NOT NULL,
+            port TEXT NOT NULL,
+            name TEXT DEFAULT '',
+            in_mb REAL DEFAULT 0,
+            out_mb REAL DEFAULT 0,
+            first_seen TEXT DEFAULT '',
+            last_seen TEXT DEFAULT '',
+            PRIMARY KEY (date, hour, port)
+        )''')
+        c.execute(
+            'CREATE INDEX IF NOT EXISTS idx_node_hourly_port_date '
+            'ON node_hourly(port, date, hour)'
+        )
         c.execute('''CREATE TABLE IF NOT EXISTS config (
             key TEXT PRIMARY KEY, value TEXT
         )''')
@@ -192,6 +207,7 @@ class Database:
         )
         date = observed_at[:10]
         display_time = observed_at[:19]
+        hour = int(observed_at[11:13])
         conn = None
         result = {'ports': 0, 'in_mb': 0.0, 'out_mb': 0.0, 'resets': 0}
         try:
@@ -276,6 +292,19 @@ class Database:
                     (date, port, name, delta_in_mb, delta_out_mb,
                      display_time, display_time),
                 )
+                cur.execute(
+                    '''INSERT INTO node_hourly
+                       (date, hour, port, name, in_mb, out_mb,
+                        first_seen, last_seen)
+                       VALUES (?,?,?,?,?,?,?,?)
+                       ON CONFLICT(date, hour, port) DO UPDATE SET
+                         name=excluded.name,
+                         in_mb=node_hourly.in_mb+excluded.in_mb,
+                         out_mb=node_hourly.out_mb+excluded.out_mb,
+                         last_seen=excluded.last_seen''',
+                    (date, hour, port, name, delta_in_mb, delta_out_mb,
+                     display_time, display_time),
+                )
                 result['ports'] += 1
                 result['in_mb'] += delta_in_mb
                 result['out_mb'] += delta_out_mb
@@ -315,6 +344,7 @@ class Database:
             cur = conn.cursor()
             cur.execute('DELETE FROM traffic_cursor')
             cur.execute('DELETE FROM node_daily')
+            cur.execute('DELETE FROM node_hourly')
             cur.execute('UPDATE rules SET used=0, used_in=0, used_out=0')
             for port, counters in samples.items():
                 try:
@@ -365,6 +395,25 @@ class Database:
             return list(reversed(rows))
         except Exception as e:
             log.error("get_traffic_daily_totals failed: %s", e)
+            return []
+
+    def get_traffic_hourly_totals(self, date, port=None):
+        try:
+            conn = self._connect()
+            cur = conn.cursor()
+            sql = '''SELECT hour, ROUND(SUM(in_mb),3),
+                            ROUND(SUM(out_mb),3)
+                     FROM node_hourly WHERE date=?'''
+            args = [date]
+            if port:
+                sql += ' AND port=?'
+                args.append(str(port))
+            sql += ' GROUP BY hour ORDER BY hour'
+            rows = list(cur.execute(sql, args))
+            conn.close()
+            return rows
+        except Exception as e:
+            log.error("get_traffic_hourly_totals failed: %s", e)
             return []
 
     def get_traffic_nodes_for_date(self, date):

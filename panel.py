@@ -652,13 +652,15 @@ def traffic_page():
     days = max(7, min(90, days))
     selected = request.args.get('date', '')
     query = request.args.get('q', '')
+    node = request.args.get('node', '')
     dashboard = stats.get_dashboard(
-        selected_date=selected, days=days, query=query
+        selected_date=selected, days=days, query=query, node=node
     )
     return render_template(
         'traffic.html',
         days=days,
         query=query,
+        node=node,
         **dashboard,
     )
 
@@ -670,8 +672,10 @@ def api_traffic_summary():
     days = max(7, min(90, days))
     selected = request.args.get('date', '')
     query = request.args.get('q', '')
-    return jsonify(stats.get_dashboard(selected_date=selected, days=days,
-                                       query=query))
+    node = request.args.get('node', '')
+    return jsonify(stats.get_dashboard(
+        selected_date=selected, days=days, query=query, node=node
+    ))
 
 
 @app.route('/traffic/export.csv')

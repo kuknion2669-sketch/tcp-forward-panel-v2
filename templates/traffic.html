@@ -28,6 +28,12 @@
     <label class="field">统计日期<input type="date" name="date" value="{{ selected_date }}" max="{{ today }}"></label>
     <label class="field">趋势天数<select name="days">{% for n in [7,14,30,60,90] %}<option value="{{ n }}"{% if days==n %} selected{% endif %}>{{ n }} 天</option>{% endfor %}</select></label>
     <label class="field">搜索节点<input name="q" value="{{ query }}" placeholder="名称 / 本地端口 / IP"></label>
+    <label class="field">小时时段
+      <select name="node">
+        <option value="">全站合计</option>
+        {% for option in node_options %}<option value="{{ option.port }}"{% if node_filter==option.port %} selected{% endif %}>{{ option.name }} · {{ option.port }}</option>{% endfor %}
+      </select>
+    </label>
     <button class="btn primary" type="submit">查询</button>
   </form>
 
@@ -51,6 +57,19 @@
   </div>
 
   <div class="panel">
+    <h2>{{ selected_date }} · {% if node_filter %}{{ node_filter_name }}（{{ node_filter }}）{% else %}全站{% endif %}小时流量</h2>
+    <div class="note" style="margin-bottom:10px">
+      {% if peak_hours %}
+        高峰时段：
+        {% for peak in peak_hours %}<span class="tag" style="margin-right:8px">{{ peak.label }} · {{ peak.total_display }}</span>{% endfor %}
+      {% else %}
+        当前日期暂无小时流量数据
+      {% endif %}
+    </div>
+    <div id="hourlyChart" style="height:300px"></div>
+  </div>
+
+  <div class="panel">
     <h2>{{ selected_date }} 各节点流量</h2>
     <div class="table-wrap">
       <table>
@@ -62,7 +81,7 @@
         <tbody>
         {% for r in rows %}
           <tr>
-            <td>{{ r.name }}</td>
+            <td><a href="/traffic?date={{ selected_date }}&days={{ days }}&q={{ query|urlencode }}&node={{ r.port }}" style="color:{% if node_filter==r.port %}#60a5fa{% else %}inherit{% endif %};font-weight:{% if node_filter==r.port %}700{% else %}400{% endif %}">{{ r.name }}</a></td>
             <td><span class="tag">{{ r.port }}</span></td>
             <td class="muted">{% if r.ip %}{{ r.ip }}:{{ r.upstream_port }}{% else %}—{% endif %}</td>
             <td class="muted">{{ r.group or '—' }}</td>
@@ -86,6 +105,7 @@
 <script src="/static/echarts.min.js"></script>
 <script>
 const history = {{ history|tojson }};
+const hourly = {{ hourly|tojson }};
 (function(){
   if(!window.echarts){return}
   const chart=echarts.init(document.getElementById('chart'));
@@ -102,6 +122,25 @@ const history = {{ history|tojson }};
     series:[
       {name:'入站',type:'bar',stack:'traffic',data:history.map(x=>x.total_in),itemStyle:{color:'#3b82f6'}},
       {name:'出站',type:'bar',stack:'traffic',data:history.map(x=>x.total_out),itemStyle:{color:'#22c55e'}}
+    ]
+  });
+  addEventListener('resize',()=>chart.resize());
+})();
+(function(){
+  if(!window.echarts){return}
+  const chart=echarts.init(document.getElementById('hourlyChart'));
+  chart.setOption({
+    tooltip:{trigger:'axis',formatter:function(ps){
+      const i=ps[0].dataIndex, r=hourly[i];
+      return r.label+'–'+String((r.hour+1)%24).padStart(2,'0')+':00<br/>入站 '+r.in_display+'<br/>出站 '+r.out_display+'<br/>合计 '+r.total_display;
+    }},
+    legend:{data:['入站','出站'],textStyle:{color:'#8192ad'},right:8,top:2},
+    grid:{left:42,right:18,top:38,bottom:34},
+    xAxis:{type:'category',data:hourly.map(x=>x.label),axisLabel:{color:'#8192ad',interval:0,rotate:35},axisLine:{lineStyle:{color:'#253553'}}},
+    yAxis:{type:'value',name:'MB',nameTextStyle:{color:'#8192ad'},axisLabel:{color:'#8192ad'},splitLine:{lineStyle:{color:'rgba(255,255,255,.05)'}}},
+    series:[
+      {name:'入站',type:'bar',stack:'hour',data:hourly.map(x=>x.in_mb),itemStyle:{color:'#3b82f6'}},
+      {name:'出站',type:'bar',stack:'hour',data:hourly.map(x=>x.out_mb),itemStyle:{color:'#22c55e'}}
     ]
   });
   addEventListener('resize',()=>chart.resize());

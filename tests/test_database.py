@@ -80,6 +80,8 @@ class DatabaseTests(unittest.TestCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["in_mb"], 1.0)
         self.assertEqual(rows[0]["out_mb"], 2.0)
+        hourly = self.db.get_traffic_hourly_totals("2026-11-17", "10000")
+        self.assertEqual(hourly, [(10, 1.0, 2.0)])
 
     def test_counter_reset_counts_new_epoch_usage(self):
         self.assertTrue(self.db.save([dict(RULE)]))
@@ -120,6 +122,9 @@ class DatabaseTests(unittest.TestCase):
         self.assertTrue(epoch)
         self.assertEqual(self.db.load()[0]["used"], 0)
         self.assertEqual(self.db.get_traffic_daily_totals(30), [])
+        self.assertEqual(
+            self.db.get_traffic_hourly_totals("2026-11-17"), []
+        )
         result = self.db.apply_traffic_snapshot(
             {"10000": {"bin": 6 * 1024 * 1024,
                        "bout": 8 * 1024 * 1024}},

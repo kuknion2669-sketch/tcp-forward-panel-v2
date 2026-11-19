@@ -113,7 +113,44 @@ class StatsCollector:
             cursor += timedelta(days=1)
         return history
 
-    def get_dashboard(self, selected_date=None, days=30, query=''):
+    def get_hourly_history(self, selected_date, port=None):
+        rows = self.db.get_traffic_hourly_totals(selected_date, port=port)
+        by_hour = {
+            int(row[0]): {
+                'in_mb': float(row[1] or 0),
+                'out_mb': float(row[2] or 0),
+            }
+            for row in rows
+        }
+        hourly = []
+        for hour in range(24):
+            values = by_hour.get(hour, {'in_mb': 0.0, 'out_mb': 0.0})
+            total = values['in_mb'] + values['out_mb']
+            hourly.append({
+                'hour': hour,
+                'label': f'{hour:02d}:00',
+                'in_mb': round(values['in_mb'], 3),
+                'out_mb': round(values['out_mb'], 3),
+                'total_mb': round(total, 3),
+                'in_display': _display_mb(values['in_mb']),
+                'out_display': _display_mb(values['out_mb']),
+                'total_display': _display_mb(total),
+            })
+        peak_rows = sorted(
+            (row for row in hourly if row['total_mb'] > 0),
+            key=lambda row: row['total_mb'],
+            reverse=True,
+        )[:3]
+        peaks = [
+            {
+                'label': f"{row['label']}–{(row['hour'] + 1) % 24:02d}:00",
+                'total_display': row['total_display'],
+            }
+            for row in peak_rows
+        ]
+        return hourly, peaks
+
+    def get_dashboard(self, selected_date=None, days=30, query='', node=''):
         try:
             selected = datetime.strptime(selected_date, '%Y-%m-%d').date()
         except (TypeError, ValueError):
@@ -145,6 +182,11 @@ class StatsCollector:
         }
 
         rules = self.db.load()
+        node_options = [
+            {'port': str(rule.get('local', '')),
+             'name': rule.get('name', '') or str(rule.get('local', ''))}
+            for rule in rules if rule.get('local')
+        ]
         rows = []
         current_ports = set()
         for rule in rules:
@@ -238,9 +280,32 @@ class StatsCollector:
                 'month_total_display': _display_mb(row['month_total_mb']),
             })
 
+        node_filter = str(node or '').strip()
+        node_filter_name = ''
+        if node_filter:
+            for option in node_options:
+                if option['port'] == node_filter:
+                    node_filter_name = option['name']
+                    break
+            if not node_filter_name:
+                for row in rows:
+                    if row['port'] == node_filter:
+                        node_filter_name = row['name']
+                        break
+        hourly, peak_hours = self.get_hourly_history(
+            selected_s, port=node_filter or None
+        )
+
         config = self.db.get_config()
         return {
             'rows': rows,
+            'node_options': sorted(
+                node_options, key=lambda item: item['name'].lower()
+            ),
+            'node_filter': node_filter,
+            'node_filter_name': node_filter_name,
+            'hourly': hourly,
+            'peak_hours': peak_hours,
             'selected_date': selected_s,
             'yesterday_date': yesterday_s,
             'today': today.isoformat(),
